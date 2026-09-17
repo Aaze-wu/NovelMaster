@@ -22,14 +22,14 @@ from ..readers import (SUPPORTED_EXTENSIONS, FolderReader, ReaderError,
                        format_chapter_html, supported_extensions_text)
 from .continue_dialog import ContinueReadingDialog
 from .theme_dialog import ThemeGeneratorDialog
-from ..logger import Logger
+from ..logger import logger
 
 class EpubNovelMaster(QMainWindow):
     def __init__(self):
         super().__init__()
         
-        # 初始化管理器
-        self.logger = Logger()
+        # 初始化管理器（logger 全局单例，重复构造不会叠加处理器）
+        self.logger = logger
         self.config_manager = ConfigManager()
         self.progress_manager = ReadingProgressManager()
         self.theme_manager = ThemeManager()

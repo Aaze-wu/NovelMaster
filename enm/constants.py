@@ -16,7 +16,7 @@ from pathlib import Path
 # 项目配置
 PROJECT_NAME = "EpubNovelMaster"
 AUTHOR_NAME = "Aaze_wu"
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 DEBUG_MODE = False    # 默认关闭调试模式
 # DEBUG_MODE = True   # 开发环境下默认开启调试模式
 
