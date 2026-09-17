@@ -9,6 +9,9 @@
 - �️ **内嵌图片**: 自动显示书中嵌入的封面与插图，并随窗口宽度自适应缩放
 - �📁 **文件夹模式**: 支持直接打开文件夹批量阅读
 - 💾 **自动保存**: 自动保存阅读记录和进度
+- 🔖 **继续阅读**: 独立的阅读记录面板，按最后阅读时间排序，支持搜索、删除与清理失效记录
+- 📊 **阅读统计**: 记录打开次数、阅读时长、已读章节数与最远章节
+- 📍 **位置记忆**: 重新打开书籍时回到上次的章节，并可记住章内滚动位置
 - 🎨 **主题切换**: 内置浅色和深色主题，支持自定义主题
 - 🌍 **多语言支持**: 内置简体中文和英语
 - 🔧 **高度可定制**: 字体、颜色、布局等均可自定义
@@ -112,9 +115,12 @@ PowerShell 版本与其参数完全对应：
 
 1. **打开文件**: 点击"文件" → "打开文件"，选择任意受支持的电子书文件
 2. **打开文件夹**: 点击"文件" → "打开文件夹"，选择包含小说文件的文件夹
-3. **章节导航**: 使用左侧章节列表或工具栏的"上一章/下一章"按钮
-4. **主题切换**: 点击"视图" → "主题"，选择喜欢的主题
-5. **字体设置**: 点击"视图" → "字体设置"，调整字体和大小
+3. **继续阅读**: 点击"文件" → "继续阅读…"（或工具栏的"继续阅读"），
+   在列表里双击任意记录即可接着上次的位置读；还可以搜索、删除单条记录或清理失效记录
+4. **章节导航**: 使用左侧章节列表或工具栏的"上一章/下一章"按钮
+5. **主题切换**: 点击"视图" → "主题"，选择喜欢的主题
+6. **字体设置**: 点击"视图" → "字体设置"，调整字体和大小
+7. **位置记忆**: "视图" → "记住章内阅读位置"可开关章内滚动位置的记忆
 
 ## 主题功能
 
@@ -148,7 +154,7 @@ Reader-Equb/
 │   ├── logger.py             # 日志工具
 │   ├── managers/             # 配置 / 主题 / 语言 / 阅读进度管理
 │   ├── readers/              # 各格式阅读器与工厂
-│   └── ui/                   # 主窗口与主题生成器对话框
+│   └── ui/                   # 主窗口、继续阅读面板与主题生成器对话框
 ├── run.bat / run.ps1         # 启动脚本
 ├── run_debug.bat / run_debug.ps1   # 调试启动脚本
 ├── install.bat / install.ps1       # 环境安装（自动建 venv + 镜像源装依赖）
@@ -206,15 +212,33 @@ Reader-Equb/
 | `chapter` / `chapter_title` | 当前位置的章节下标与标题 |
 | `file_index` | 文件夹模式下的当前文件下标 |
 | `inner_filename` / `inner_md5` | 文件夹模式下当前内层文件的文件名与内容 MD5 |
+| `scroll_percent` | 章内滚动位置（0~100），下次打开时定位到原处 |
+| `open_count` | 打开次数（每次成功加载 +1） |
+| `first_opened_at` / `last_opened_at` | 首次 / 最后打开时间 |
+| `total_read_seconds` / `session_read_seconds` | 累计阅读时长 / 最近一次会话的阅读时长 |
+| `read_chapters` | `{单元名: [已读章节下标]}`，单文件模式的单元名为文件名，文件夹模式为内层文件名 |
+| `read_chapter_count` | 去重后的已读章节总数 |
+| `max_chapter` | 当前单元读到的最远章节下标 |
 | `file_path` | 打开时使用的完整路径 |
 | `timestamp` / `saved_at` | 保存时间（时间戳 / `YYYY-mm-dd HH:MM:SS`） |
 | `record_version` / `app_version` | 记录格式版本与写入时的程序版本 |
 
-旧记录缺少的字段会在读取时自动补齐（`key_type` / `md5` / `filename`），
-下次自动保存时落盘；`record_version` / `saved_at` 由管理器写入，调用方无需关心。
+旧记录缺少的字段（`key_type` / `md5` / `filename` 以及全部统计字段）会在读取时
+自动补齐，下次自动保存时落盘；`record_version` / `saved_at` 由管理器写入，调用方无需关心。
 
 文件夹模式恢复位置时优先按 `inner_filename` 定位当前文件，
 因此往文件夹里增删书籍、导致排序变化后仍能接着原来那本读。
+
+### 阅读统计与位置记忆
+
+- **计时口径**：只在窗口处于激活状态（且已打开书籍）时累计阅读时长，
+  切到别的程序、最小化时自动暂停；失焦时会顺手保存一次，避免异常退出丢进度。
+- **已读章节**：`read_chapters` 记录读到过的章节下标（去重），
+  `max_chapter` / `read_chapter_count` 由它推导，因此回看旧章节不会让进度倒退。
+- **章内位置**：`scroll_percent` 只在“重新打开的是同一章节”时恢复，
+  翻到新章节仍从章首开始；可在“视图”菜单里关闭该行为。
+- **继续阅读面板**：数据来自 `saves/` 下所有记录，
+  失效判断是记录里的 `file_path` 是否还存在（只删记录，不动书籍文件）。
 
 ## 开发说明
 
@@ -230,7 +254,7 @@ enm/
 ├── managers/
 │   ├── config.py         # ConfigManager：程序配置读写
 │   ├── language.py       # LanguageManager：多语言翻译
-│   ├── progress.py       # ReadingProgressManager：阅读进度记录
+│   ├── progress.py       # ReadingProgressManager：阅读进度、阅读统计与记录清理
 │   └── theme.py          # ThemeManager：主题的加载/保存/导入导出
 ├── readers/
 │   ├── base.py           # BaseReader、ReaderError 与通用工具函数
@@ -248,6 +272,7 @@ enm/
 │   └── folder.py         # FolderReader：文件夹批量阅读
 └── ui/
     ├── main_window.py    # EpubNovelMaster 主窗口
+    ├── continue_dialog.py  # ContinueReadingDialog「继续阅读」面板
     └── theme_dialog.py   # ThemeGeneratorDialog 主题生成器
 ```
 
@@ -328,7 +353,7 @@ html = inline_images(html, resolve)
 
 ## 更新日志
 
-### 未发布
+### v1.2.0
 
 - 修复章节标题重复显示：正文自带的标题会被识别并去除（`strip_duplicate_title()`），
   TXT 的标题行也不再重复出现在正文中
@@ -339,15 +364,19 @@ html = inline_images(html, resolve)
 - 阅读记录新增元数据：`filename`、`md5`、`novelname`、`author`、`key_type`、
   `file_size`、`total_chapters`、`chapter_title`、`inner_filename`/`inner_md5`、
   `record_version`、`saved_at`；文件夹模式按内层文件名恢复位置
-
-### v1.0.0
-
-- 初始版本发布
-- 支持 EPUB 和 TXT 格式
-- 文件夹模式阅读
-- 主题切换和自定义
-- 多语言支持（简体中文、英语）
-- 自动保存功能
+- 新增「继续阅读」面板（文件菜单 / 工具栏）：按最后阅读时间倒序列出所有书籍，
+  显示进度、已读章节、阅读时长与最后阅读时间，双击即可接着读；
+  支持按书名/作者/文件名搜索、删除单条记录、一键清理失效记录，
+  右键菜单可打开所在文件夹或复制完整路径
+- 新增阅读统计：`open_count`、`first_opened_at`/`last_opened_at`、
+  `total_read_seconds`/`session_read_seconds`、`read_chapters`、
+  `read_chapter_count`、`max_chapter`（记录格式版本升至 3）
+- 阅读时长只在窗口处于激活状态时累计，失焦自动暂停并落盘一次
+- 新增章内位置记忆（`scroll_percent`）：重新打开同一章节时回到原处，
+  可在"视图" → "记住章内阅读位置"关闭
+- 切换书籍时先保存上一本的进度与阅读时长，避免自动保存间隔内丢数据
+- 新增管理器接口：`iter_records()` / `delete_record_file()` / `format_timestamp()` /
+  `record_file_key()` / `normalise_read_chapters()`
 
 ### v1.1.0
 
@@ -358,3 +387,12 @@ html = inline_images(html, resolve)
 - 新增 `install.ps1` / `install.bat`：无虚拟环境时自动创建并安装依赖
 - pip 安装自动测速选择镜像源，镜像失效时自动换源
 - 打包脚本在虚拟环境缺少 Nuitka 时自动回退到本机环境
+
+### v1.0.0
+
+- 初始版本发布
+- 支持 EPUB 和 TXT 格式
+- 文件夹模式阅读
+- 主题切换和自定义
+- 多语言支持（简体中文、英语）
+- 自动保存功能

@@ -19,9 +19,22 @@
 * ``key_type`` —— ``file`` / ``dir`` / ``path``，说明 ``md5`` 的含义；
 * ``file_size`` —— 文件字节数（仅普通文件）；
 * ``total_chapters`` / ``chapter_title`` —— 总章节数与当前章节标题；
+* ``scroll_percent`` —— 章内滚动位置（0~100）；
 * ``record_version`` / ``saved_at`` —— 记录格式版本与保存时间，由管理器统一写入。
+
+阅读统计字段（同样由读取时自动补齐）：
+
+* ``open_count`` —— 这本书被打开的次数；
+* ``first_opened_at`` / ``last_opened_at`` —— 首次 / 最后打开时间；
+* ``total_read_seconds`` —— 累计阅读时长（只统计窗口处于激活状态的时间）；
+* ``session_read_seconds`` —— 最近一次会话的阅读时长；
+* ``read_chapters`` —— ``{单元名: [已读章节下标]}``，单元名在单文件模式为文件名、
+  文件夹模式为内层文件名，因此同一个文件夹里的多个文件互不干扰；
+* ``read_chapter_count`` —— ``read_chapters`` 里去重后的章节总数；
+* ``max_chapter`` —— **当前单元**读到的最远章节下标（由 ``read_chapters`` 推导）。
 """
 
+import copy
 import hashlib
 import json
 import time
@@ -34,7 +47,90 @@ from ..logger import logger
 _HASH_CHUNK_SIZE = 1024 * 1024
 
 # 阅读记录格式版本：字段结构变化时递增
-RECORD_VERSION = 2
+# 3：新增阅读统计字段（open_count / total_read_seconds / read_chapters 等）
+RECORD_VERSION = 3
+
+# 统计字段的默认值，旧记录在读取时按此补齐
+DEFAULT_STATS = {
+    "open_count": 0,
+    "first_opened_at": "",
+    "last_opened_at": "",
+    "total_read_seconds": 0.0,
+    "session_read_seconds": 0.0,
+    "read_chapters": {},
+    "read_chapter_count": 0,
+    "max_chapter": 0,
+}
+
+
+def format_timestamp(value=None):
+    """把时间戳格式化成记录里使用的可读时间（缺省取当前时间）"""
+    if isinstance(value, (int, float)):
+        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(value))
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
+
+def record_file_key(record):
+    """从记录内容反推它的记录键（读不到 ``md5`` / ``key_type`` 时退回路径哈希）"""
+    if not isinstance(record, dict):
+        return ""
+
+    kind = record.get("key_type")
+    digest = record.get("md5")
+    if kind in ("file", "dir", "path") and digest:
+        return f"{kind}:{digest}"
+
+    file_path = record.get("file_path")
+    if file_path:
+        return f"path:{path_hash(file_path)}"
+    return ""
+
+
+def normalise_read_chapters(value):
+    """把 ``read_chapters`` 规范成 ``{单元名: 升序去重的章节下标}``。
+
+    容忍手工编辑过的记录：允许直接写成章节列表（视为单文件模式），
+    非数字或负数下标会被丢弃。
+    """
+    result = {}
+    if isinstance(value, dict):
+        items = value.items()
+    elif isinstance(value, (list, tuple, set)):
+        items = [("*", value)]
+    else:
+        return result
+
+    for unit, chapters in items:
+        if isinstance(chapters, (str, bytes)) or not isinstance(chapters, (list, tuple, set)):
+            continue
+        indexes = set()
+        for item in chapters:
+            try:
+                index = int(item)
+            except (TypeError, ValueError):
+                continue
+            if index >= 0:
+                indexes.add(index)
+        if indexes:
+            result[str(unit)] = sorted(indexes)
+
+    return result
+
+
+def _as_int(value, default=0):
+    """尽力把记录里的值转成整数"""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_float(value, default=0.0):
+    """尽力把记录里的值转成浮点数"""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def content_hash(path, chunk_size=_HASH_CHUNK_SIZE):
@@ -160,7 +256,10 @@ class ReadingProgressManager:
         return {}
 
     def _upgrade_record(self, progress, file_key):
-        """补齐旧记录缺少的 ``md5`` / ``key_type`` / ``filename`` 字段"""
+        """补齐旧记录缺少的元数据与统计字段
+
+        只改内存里的字典，等下一次保存时自然落盘。
+        """
         if not isinstance(progress, dict):
             return {}
 
@@ -173,6 +272,18 @@ class ReadingProgressManager:
             file_path = progress.get("file_path")
             if file_path:
                 progress["filename"] = Path(str(file_path)).name
+
+        # 统计数据：旧记录没有这些字段，按默认值补齐后再做一次类型规范化
+        for field, default in DEFAULT_STATS.items():
+            if field not in progress:
+                progress[field] = copy.deepcopy(default)
+
+        progress["open_count"] = _as_int(progress.get("open_count"))
+        progress["total_read_seconds"] = _as_float(progress.get("total_read_seconds"))
+        progress["session_read_seconds"] = _as_float(progress.get("session_read_seconds"))
+        progress["read_chapters"] = normalise_read_chapters(progress.get("read_chapters"))
+        progress["read_chapter_count"] = sum(len(v) for v in progress["read_chapters"].values())
+        progress["max_chapter"] = _as_int(progress.get("max_chapter"))
 
         return progress
 
@@ -193,7 +304,7 @@ class ReadingProgressManager:
         if not record.get("filename") and file_path:
             record["filename"] = Path(str(file_path)).name
         record["record_version"] = RECORD_VERSION
-        record["saved_at"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        record["saved_at"] = format_timestamp()
 
         try:
             with open(progress_file, 'w', encoding='utf-8') as f:
@@ -205,29 +316,44 @@ class ReadingProgressManager:
 
     def _read(self, file_key):
         """读取记录键对应的 JSON（文件不存在或损坏时返回空字典）"""
-        progress_file = self.get_progress_file_path(file_key)
-        
+        return self._read_file(self.get_progress_file_path(file_key))
+
+    def _read_file(self, progress_file):
+        """读取记录文件（不存在或损坏时返回空字典）"""
+        progress_file = Path(progress_file)
         if not progress_file.exists():
             return {}
-        
+
         try:
             with open(progress_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
             logger.log(f"加载阅读记录失败: {e}", "ERROR")
             return {}
-    
+
+    # ---------------- 记录列表 ----------------
+
+    def iter_records(self):
+        """遍历所有阅读记录，产出 ``(记录文件路径, 记录内容)``
+
+        记录内容已补全元数据与统计字段，可直接用于「继续阅读」列表展示；
+        记录文件路径用于删除等操作（记录文件名是记录键的哈希，本身不可读）。
+        """
+        for progress_file in sorted(self.save_path.glob("*.json")):
+            record = self._read_file(progress_file)
+            if not isinstance(record, dict) or not record:
+                continue
+            yield progress_file, self._upgrade_record(record, record_file_key(record))
+
+    def delete_record_file(self, progress_file):
+        """删除单个阅读记录文件"""
+        try:
+            Path(progress_file).unlink()
+            return True
+        except OSError as e:
+            logger.log(f"删除阅读记录失败: {e}", "WARN")
+            return False
+
     def get_all_progress(self):
         """获取所有阅读记录（键为记录文件名，值为记录内容）"""
-        progress_data = {}
-        
-        for progress_file in self.save_path.glob("*.json"):
-            try:
-                with open(progress_file, 'r', encoding='utf-8') as f:
-                    # 由于使用哈希文件名，无法直接还原原始文件路径
-                    # 这里返回文件内容，主程序需要处理映射关系
-                    progress_data[progress_file.stem] = json.load(f)
-            except Exception as e:
-                logger.log(f"读取阅读记录文件失败: {e}", "ERROR")
-        
-        return progress_data
+        return {progress_file.stem: record for progress_file, record in self.iter_records()}

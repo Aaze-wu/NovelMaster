@@ -5,7 +5,7 @@ import json
 import time
 from pathlib import Path
 
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import QEvent, Qt, QTimer
 from PyQt5.QtGui import QFont, QIcon, QImage, QTextCursor
 from PyQt5.QtWidgets import (QAction, QDialog, QFileDialog, QFontDialog,
                              QHBoxLayout, QLabel, QMainWindow, QMessageBox,
@@ -16,10 +16,11 @@ from PyQt5.QtWidgets import (QAction, QDialog, QFileDialog, QFontDialog,
 from ..constants import (AUTHOR_NAME, DEBUG_MODE, ICON_PATH, PROJECT_NAME,
                          VERSION)
 from ..managers import (ConfigManager, LanguageManager, ReadingProgressManager,
-                        ThemeManager, split_file_key)
+                        ThemeManager, format_timestamp, split_file_key)
 from ..readers import (SUPPORTED_EXTENSIONS, FolderReader, ReaderError,
                        build_open_file_filter, create_reader,
                        format_chapter_html, supported_extensions_text)
+from .continue_dialog import ContinueReadingDialog
 from .theme_dialog import ThemeGeneratorDialog
 from ..logger import Logger
 
@@ -47,6 +48,11 @@ class EpubNovelMaster(QMainWindow):
         # 自动保存定时器
         self.auto_save_timer = QTimer()
         self.auto_save_timer.timeout.connect(self.auto_save_progress)
+
+        # 阅读统计会话状态（仅窗口激活时计时）与待恢复的章内位置
+        self._stats = self.empty_stats()
+        self._focus_started_at = None
+        self._pending_scroll_percent = 0.0
         
         # 设置窗口图标
         self.set_window_icon()
@@ -171,6 +177,10 @@ class EpubNovelMaster(QMainWindow):
         self.recent_menu = file_menu.addMenu("最近文件")
         self.update_recent_files_menu()
         
+        continue_action = QAction("继续阅读...", self)
+        continue_action.triggered.connect(self.show_continue_reading)
+        file_menu.addAction(continue_action)
+        
         file_menu.addSeparator()
         
         exit_action = QAction("退出", self)
@@ -209,6 +219,14 @@ class EpubNovelMaster(QMainWindow):
         font_action.triggered.connect(self.change_font)
         view_menu.addAction(font_action)
         
+        # 记住章内阅读位置
+        self.restore_scroll_action = QAction("记住章内阅读位置", self)
+        self.restore_scroll_action.setCheckable(True)
+        self.restore_scroll_action.setChecked(
+            self.config_manager.get("restore_scroll_position", True))
+        self.restore_scroll_action.toggled.connect(self.toggle_restore_scroll)
+        view_menu.addAction(self.restore_scroll_action)
+        
         # 语言设置
         language_menu = view_menu.addMenu("语言")
         
@@ -235,6 +253,10 @@ class EpubNovelMaster(QMainWindow):
         open_file_action = QAction("打开文件", self)
         open_file_action.triggered.connect(self.open_file)
         toolbar.addAction(open_file_action)
+        
+        continue_action = QAction("继续阅读", self)
+        continue_action.triggered.connect(self.show_continue_reading)
+        toolbar.addAction(continue_action)
         
         toolbar.addSeparator()
         
@@ -370,6 +392,10 @@ class EpubNovelMaster(QMainWindow):
                 self.logger.log(f"无法打开文件: {file_path} - {e}", "ERROR")
                 return
             
+            # 切换书籍前先把上一本的进度与阅读时长落盘
+            if self.current_reader is not None:
+                self.save_reading_progress()
+            
             self.release_current_reader()
             self.current_reader = new_reader
             if DEBUG_MODE:
@@ -411,6 +437,10 @@ class EpubNovelMaster(QMainWindow):
                 new_reader.close()
                 return
             
+            # 切换书籍前先把上一本的进度与阅读时长落盘
+            if self.current_reader is not None:
+                self.save_reading_progress()
+            
             self.release_current_reader()
             self.current_reader = new_reader
             self.current_file_path = Path(folder_path)
@@ -451,6 +481,7 @@ class EpubNovelMaster(QMainWindow):
             reader.current_chapter = inner.current_chapter
             title = inner.get_chapter_title(inner.current_chapter)
             content = inner.get_chapter_content(inner.current_chapter)
+            chapter_index = inner.current_chapter
         else:
             if reader.get_chapter_count() == 0:
                 self.reader_display.setHtml("<p>文件中没有可显示的内容。</p>")
@@ -460,15 +491,17 @@ class EpubNovelMaster(QMainWindow):
                 reader.current_chapter = 0
             title = reader.get_chapter_title(reader.current_chapter)
             content = reader.get_chapter_content(reader.current_chapter)
+            chapter_index = reader.current_chapter
         
         self.reader_display.setHtml(format_chapter_html(title, content))
 
         # 图片自适应阅读区宽度（重新渲染章节时重置缓存）
         self._image_widths = {}
         self.fit_document_images()
-        
-        # 滚动位置重置到顶部（章节切换后保持顶部更符合预期）
-        self.reader_display.verticalScrollBar().setValue(0)
+
+        # 统计已读章节，并按记录恢复章内位置（无待恢复值时回到章首）
+        self.mark_chapter_read(chapter_index)
+        self.restore_pending_scroll()
         
         self.update_progress()
 
@@ -479,6 +512,12 @@ class EpubNovelMaster(QMainWindow):
         super().resizeEvent(event)
         if self.current_reader is not None:
             self.image_fit_timer.start(150)
+
+    def changeEvent(self, event):
+        """窗口激活状态变化时开始/暂停阅读计时"""
+        super().changeEvent(event)
+        if event.type() == QEvent.ActivationChange:
+            self.on_activation_changed(self.isActiveWindow())
 
     def fit_document_images(self):
         """把超过阅读区宽度的内嵌图片缩小到阅读区宽度"""
@@ -817,6 +856,9 @@ class EpubNovelMaster(QMainWindow):
 
         file_key = self.progress_key()
         progress = self.progress_manager.load_progress(file_key, self.legacy_progress_key())
+
+        # 打开次数 +1、载入统计数据并开始本次阅读计时
+        self.begin_reading_session(progress)
         
         if progress:
             # 恢复阅读位置
@@ -847,6 +889,15 @@ class EpubNovelMaster(QMainWindow):
                     self.current_reader.current_chapter = chapter_index
                     # 自动选中对应的章节
                     self.select_chapter_in_tree("chapter", chapter_index)
+
+            # 章内位置：只在开关打开且重新打开的是同一章节时才还原
+            if self.config_manager.get("restore_scroll_position", True):
+                try:
+                    self._pending_scroll_percent = float(progress.get("scroll_percent") or 0)
+                except (TypeError, ValueError):
+                    self._pending_scroll_percent = 0.0
+            else:
+                self._pending_scroll_percent = 0.0
             
             self.logger.log(f"恢复阅读进度: {file_key} -> 章节 {chapter_index}")
 
@@ -867,9 +918,12 @@ class EpubNovelMaster(QMainWindow):
                     return
     
     def save_reading_progress(self):
-        """保存阅读进度"""
+        """保存阅读进度、阅读统计与章内位置"""
         if not self.current_file_path or not self.current_reader:
             return
+        
+        # 先把当前专注时段结算掉，保证阅读时长不丢
+        self.accumulate_focus_time()
         
         file_key = self.progress_key()
         file_path = str(self.current_file_path)
@@ -878,6 +932,8 @@ class EpubNovelMaster(QMainWindow):
             "timestamp": time.time(),
         }
         progress_data.update(self.progress_metadata())
+        progress_data.update(self.serialize_stats())
+        progress_data["scroll_percent"] = self.current_scroll_percent()
         
         if isinstance(self.current_reader, FolderReader):
             reader = self.current_reader.get_current_reader()
@@ -899,6 +955,165 @@ class EpubNovelMaster(QMainWindow):
             self.logger.log(f"保存阅读进度: {file_path} -> 章节 {progress_data.get('chapter', 0)}")
         else:
             self.logger.log(f"保存阅读进度失败: {file_path}", "ERROR")
+    
+    # ---------------- 阅读统计 ----------------
+
+    @staticmethod
+    def empty_stats():
+        """空白的统计状态（与阅读记录里的统计字段对应）"""
+        return {
+            "open_count": 0,
+            "first_opened_at": "",
+            "last_opened_at": "",
+            "total_read_seconds": 0.0,
+            "session_read_seconds": 0.0,
+            "read_chapters": {},
+        }
+
+    def current_unit_name(self):
+        """统计单元名：单文件模式是文件名，文件夹模式是当前内层文件名"""
+        if isinstance(self.current_reader, FolderReader):
+            current = self.current_reader.get_current_file()
+            if current:
+                return str(current['name'])
+        if self.current_file_path:
+            return Path(str(self.current_file_path)).name
+        return ""
+
+    def begin_reading_session(self, progress):
+        """载入记录里的统计数据并开始本次会话（打开次数 +1、记录打开时间）"""
+        self.finish_reading_session()
+        
+        progress = progress or {}
+        read_chapters = {}
+        for unit, indexes in (progress.get("read_chapters") or {}).items():
+            try:
+                read_chapters[str(unit)] = {int(index) for index in indexes}
+            except (TypeError, ValueError):
+                continue
+        
+        self._stats = {
+            "open_count": int(progress.get("open_count") or 0) + 1,
+            "first_opened_at": progress.get("first_opened_at") or format_timestamp(),
+            "last_opened_at": format_timestamp(),
+            "total_read_seconds": float(progress.get("total_read_seconds") or 0),
+            "session_read_seconds": 0.0,
+            "read_chapters": read_chapters,
+        }
+        # 只有窗口处于激活状态才计时
+        self._focus_started_at = time.monotonic() if self.isActiveWindow() else None
+
+    def finish_reading_session(self):
+        """结算本次阅读时长并停止计时"""
+        self.accumulate_focus_time()
+        self._focus_started_at = None
+
+    def accumulate_focus_time(self):
+        """把当前专注段落的时长累加进统计（未计时时返回 0）"""
+        if self._focus_started_at is None:
+            return 0.0
+        
+        now = time.monotonic()
+        elapsed = max(0.0, now - self._focus_started_at)
+        self._focus_started_at = now
+        self._stats["total_read_seconds"] += elapsed
+        self._stats["session_read_seconds"] += elapsed
+        return elapsed
+
+    def on_activation_changed(self, active):
+        """窗口激活状态变化：激活时开始计时，失焦时结算并落盘一次"""
+        if active:
+            if self.current_reader is not None and self._focus_started_at is None:
+                self._focus_started_at = time.monotonic()
+            return
+        
+        self.accumulate_focus_time()
+        self._focus_started_at = None
+        # 失焦时顺手保存一次，避免异常退出丢掉进度
+        if self.current_reader is not None and self.config_manager.get("auto_save", True):
+            self.save_reading_progress()
+
+    def mark_chapter_read(self, index):
+        """把章节记为已读（用于统计去重后的已读章节数）"""
+        unit = self.current_unit_name()
+        if not unit:
+            return
+        try:
+            index = int(index)
+        except (TypeError, ValueError):
+            return
+        if index < 0:
+            return
+        self._stats["read_chapters"].setdefault(unit, set()).add(index)
+
+    def serialize_stats(self):
+        """把内存里的统计数据转成可写入阅读记录的形式"""
+        unit = self.current_unit_name()
+        chapters = {
+            name: sorted(indexes)
+            for name, indexes in self._stats["read_chapters"].items()
+            if indexes
+        }
+        return {
+            "open_count": self._stats["open_count"],
+            "first_opened_at": self._stats["first_opened_at"],
+            "last_opened_at": self._stats["last_opened_at"],
+            "total_read_seconds": round(self._stats["total_read_seconds"], 1),
+            "session_read_seconds": round(self._stats["session_read_seconds"], 1),
+            # max_chapter 取当前单元的最远章节，文件夹模式下各内层文件互不干扰
+            "max_chapter": max(chapters.get(unit) or [0]),
+            "read_chapters": chapters,
+            "read_chapter_count": sum(len(indexes) for indexes in chapters.values()),
+        }
+
+    # ---------------- 章内位置 ----------------
+
+    def current_scroll_percent(self):
+        """当前章内滚动百分比（没有滚动空间时返回 0）"""
+        scroll = self.reader_display.verticalScrollBar()
+        maximum = scroll.maximum()
+        if maximum <= 0:
+            return 0.0
+        return round(scroll.value() / maximum * 100, 2)
+
+    def apply_scroll_percent(self, percent):
+        """按百分比设置阅读区滚动位置"""
+        scroll = self.reader_display.verticalScrollBar()
+        maximum = scroll.maximum()
+        if maximum > 0:
+            scroll.setValue(int(round(maximum * float(percent) / 100.0)))
+
+    def restore_pending_scroll(self):
+        """应用待恢复的章内位置（没有待恢复值时回到章首）"""
+        percent = self._pending_scroll_percent
+        self._pending_scroll_percent = 0.0
+        if percent and percent > 0:
+            self.apply_scroll_percent(percent)
+        else:
+            self.reader_display.verticalScrollBar().setValue(0)
+
+    def toggle_restore_scroll(self, checked):
+        """切换「记住章内阅读位置」"""
+        self.config_manager.set("restore_scroll_position", bool(checked))
+        if not checked:
+            self._pending_scroll_percent = 0.0
+
+    def show_continue_reading(self):
+        """打开「继续阅读」面板，选中记录后直接接着读"""
+        dialog = ContinueReadingDialog(self.progress_manager, self)
+        if dialog.exec_() != QDialog.Accepted or not dialog.selected_path:
+            return
+        
+        path = Path(dialog.selected_path)
+        if not path.exists():
+            QMessageBox.warning(self, "文件不存在",
+                               f"{path}\n\n文件可能已被移动或删除。")
+            return
+        
+        if path.is_dir():
+            self.load_folder(str(path))
+        else:
+            self.load_file(str(path))
     
     def auto_save_progress(self):
         """自动保存进度"""
@@ -1047,6 +1262,9 @@ class EpubNovelMaster(QMainWindow):
         
         # 保存阅读进度
         self.save_reading_progress()
+        
+        # 结算本次阅读时长并停止计时
+        self.finish_reading_session()
         
         # 停止自动保存定时器
         self.auto_save_timer.stop()

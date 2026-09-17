@@ -20,7 +20,8 @@ class ConfigManager:
             "recent_files": [],
             "window_size": [1200, 800],
             "window_position": [100, 100],
-            "sidebar_visible": True
+            "sidebar_visible": True,
+            "restore_scroll_position": True
         }
         self.config = self.load_config()
     
