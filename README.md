@@ -1,0 +1,360 @@
+# EpubNovelMaster - 现代化小说阅读器
+
+一个功能强大的小说阅读器，支持多种格式和丰富的自定义选项。
+
+## 功能特性
+
+- 📚 **多格式支持**: EPUB、TXT、PDF、MOBI、AZW、AZW3、PRC、UMD、DOCX、FB2、HTML/HTM/XHTML、JAR、ZIP
+- 📦 **压缩包阅读**: 直接打开 ZIP / JAR，自动挑选其中的电子书文件
+- �️ **内嵌图片**: 自动显示书中嵌入的封面与插图，并随窗口宽度自适应缩放
+- �📁 **文件夹模式**: 支持直接打开文件夹批量阅读
+- 💾 **自动保存**: 自动保存阅读记录和进度
+- 🎨 **主题切换**: 内置浅色和深色主题，支持自定义主题
+- 🌍 **多语言支持**: 内置简体中文和英语
+- 🔧 **高度可定制**: 字体、颜色、布局等均可自定义
+- 🖥️ **现代化界面**: 基于 PyQt5 的现代化 GUI
+
+## 支持的文件格式
+
+| 扩展名 | 格式 | 解析方式 |
+| --- | --- | --- |
+| `.epub` | EPUB 电子书 | ebooklib |
+| `.txt` | 纯文本 | 标准库 + chardet 编码探测 |
+| `.pdf` | PDF 文档 | pypdf（按书签分章，缺省每 10 页一章） |
+| `.mobi` / `.azw` / `.azw3` / `.prc` | Kindle 电子书 | 内置 PalmDB + PalmDOC 解析器（可选 `mobi` 库增强） |
+| `.umd` | 手机电子书 | 内置 UMD 解析器（纯标准库） |
+| `.docx` | Word 文档 | python-docx |
+| `.fb2` | FictionBook 2 | 标准库 `xml.etree` |
+| `.html` / `.htm` / `.xhtml` | 网页文档 | 标准库 |
+| `.jar` / `.zip` | 压缩包 | 自动解包并读取内部电子书 |
+
+> **内嵌图片**：EPUB、DOCX、FB2、MOBI/AZW/AZW3/PRC、UMD、HTML/HTM/XHTML 以及 ZIP/JAR
+> 内的图片会被转换为 `data:` URI 内联显示，超出阅读区宽度时按比例缩小，
+> 无需额外临时文件，打包后同样有效。
+> PDF 目前只提取文字（不解析页面内嵌图片），因此在 PDF 中看不到插图。
+
+## 安装依赖
+
+### 方法一：使用一键安装脚本（推荐）
+
+Windows 下直接双击 `install.bat`，或在 PowerShell 中运行：
+
+```powershell
+.\install.ps1
+```
+
+该脚本会自动完成：
+
+1. 检测本机基础 Python（自动排除虚拟环境自身）；
+2. 若 `.venv` 不存在则**自动创建虚拟环境**；
+3. **自动测速选择最快的 pip 镜像源**（清华 / 阿里云 / 腾讯云 / 中科大），
+   某个镜像出现 403、超时或断流时自动切换到下一个，最后回退官方 PyPI；
+4. 升级 pip / setuptools / wheel 并安装 `requirements.txt` 中的全部依赖；
+5. 校验依赖是否完整，并给出后续运行/打包命令。
+
+常用参数：
+
+```powershell
+.\install.ps1 -Recreate            # 删除旧虚拟环境并重建
+.\install.ps1 -WithNuitka          # 同时安装打包工具 Nuitka
+.\install.ps1 -Mirror aliyun       # 指定镜像源（auto/tuna/aliyun/ustc/tencent/pypi）
+.\install.ps1 -DryRun -NoPause     # 只预览将要执行的命令
+.\install.ps1 -Python "C:\Python313\python.exe"   # 指定基础解释器
+```
+
+> `-Mirror` 指定的镜像会排在最前，但其余镜像与官方 PyPI 仍作为自动兜底，
+> 因此某个镜像出现 403/超时也不会中断安装。也可用环境变量统一覆盖：
+> `$env:ENM_PIP_INDEX = 'https://mirrors.aliyun.com/pypi/simple/'`
+
+### 方法二：使用 requirements.txt
+
+```bash
+pip install -r requirements.txt
+# 使用国内镜像加速
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+### 方法三：手动安装
+
+```bash
+pip install PyQt5 PyQtWebEngine ebooklib lxml Pillow python-docx chardet qdarkstyle pypdf
+```
+
+### 可选依赖
+
+`mobi` 库可为 MOBI/AZW/AZW3/PRC 提供额外的解析能力，但它是 **GPL-3.0-only** 许可，
+与本项目的 MIT 许可不兼容，因此**不列为必需依赖**。未安装时程序使用内置解析器，
+功能基本一致。
+
+## 使用方法
+
+### 启动程序
+
+```bash
+python EpubNovelMaster.py
+```
+
+或者在 Windows 上双击 `run.bat`（调试模式使用 `run_debug.bat`）。
+
+PowerShell 版本与其参数完全对应：
+
+```powershell
+.\run.ps1                 # 运行
+.\run.ps1 -UseVenv        # 使用 .venv 运行
+.\run.ps1 -DebugMode      # 调试模式（输出日志）
+.\run.ps1 -DryRun -NoPause  # 仅预览命令
+```
+
+> 首次使用若提示"在此系统上禁止运行脚本"，先执行：
+> `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
+
+### 基本操作
+
+1. **打开文件**: 点击"文件" → "打开文件"，选择任意受支持的电子书文件
+2. **打开文件夹**: 点击"文件" → "打开文件夹"，选择包含小说文件的文件夹
+3. **章节导航**: 使用左侧章节列表或工具栏的"上一章/下一章"按钮
+4. **主题切换**: 点击"视图" → "主题"，选择喜欢的主题
+5. **字体设置**: 点击"视图" → "字体设置"，调整字体和大小
+
+## 主题功能
+
+### 内置主题
+
+- **浅色主题**: 明亮的阅读环境
+- **深色主题**: 护眼的暗色模式
+
+### 自定义主题
+
+1. 点击"视图" → "主题" → "主题生成器"
+2. 选择背景色、前景色、强调色
+3. 保存并应用自定义主题
+
+### 导入/导出主题
+
+- **导入**: 点击"导入主题"，选择主题 JSON 文件
+- **导出**: 点击"导出主题"，保存当前主题配置
+
+## 多语言支持
+
+程序支持简体中文和英语，可在"视图" → "语言"中切换。
+
+## 文件结构
+
+```text
+Reader-Equb/
+├── EpubNovelMaster.py        # 程序入口（仅负责启动主窗口）
+├── enm/                      # 主程序包
+│   ├── constants.py          # 路径与全局常量
+│   ├── logger.py             # 日志工具
+│   ├── managers/             # 配置 / 主题 / 语言 / 阅读进度管理
+│   ├── readers/              # 各格式阅读器与工厂
+│   └── ui/                   # 主窗口与主题生成器对话框
+├── run.bat / run.ps1         # 启动脚本
+├── run_debug.bat / run_debug.ps1   # 调试启动脚本
+├── install.bat / install.ps1       # 环境安装（自动建 venv + 镜像源装依赖）
+├── build.bat / build.ps1           # Nuitka 打包脚本
+├── build-advanced.bat / build-advanced.ps1  # 高级打包脚本
+├── clean.bat / clean.ps1           # 清理构建产物
+├── requirements.txt          # 依赖列表
+├── README.md                 # 说明文档
+├── PACKAGING.md              # 打包说明
+├── lang/                     # 语言文件目录
+│   ├── zh_CN.json            # 简体中文翻译
+│   └── en_US.json            # 英语翻译
+├── icon/                     # 图标目录
+│   └── icon.ico              # 程序图标
+└── InstallerMakerScript/     # Inno Setup 安装包脚本
+```
+
+## 配置存储
+
+程序配置和阅读记录存储在系统应用数据目录：
+
+- **Windows**: `%APPDATA%\EpubNovelMaster\`
+- **macOS**: `~/Library/Application Support/EpubNovelMaster/`
+- **Linux**: `~/.config/EpubNovelMaster/`
+
+存储内容包括：
+
+- `config.json`: 程序配置
+- `themes/`: 自定义主题文件
+- `saves/`: 阅读进度记录
+- 日志文件
+
+`saves/` 下每个 JSON 记录用**文件内容哈希**（整文件 MD5）作为标识，而不是文件路径，
+因此移动、重命名书籍，或同一本书存在多个副本时，都能继续读到原来的进度：
+
+- 普通文件：`file:<内容 MD5>`
+- 文件夹模式：`dir:<路径 MD5>`
+- 文件不可读等异常情况回退：`path:<路径 MD5>`
+
+升级前基于路径的记录会在第一次打开该书时自动迁移到新标识（写入新记录并删除旧文件），
+无需手动处理。为避免每次自动保存都重算哈希，管理器缓存了
+`(mtime, size) → 内容哈希` 的映射，只有文件真正变化时才会重新计算。
+
+每条记录的内容：
+
+| 字段 | 说明 |
+| --- | --- |
+| `filename` | 文件名（文件夹模式为文件夹名） |
+| `md5` | 记录键摘要；`key_type` 为 `file` 时即整文件内容 MD5 |
+| `novelname` | 书名，缺元数据时回退文件名 |
+| `author` | 作者（无则为空字符串） |
+| `key_type` | `file` / `dir` / `path`，说明 `md5` 的含义 |
+| `file_size` | 文件字节数（仅普通文件） |
+| `total_chapters` | 总章节数 |
+| `chapter` / `chapter_title` | 当前位置的章节下标与标题 |
+| `file_index` | 文件夹模式下的当前文件下标 |
+| `inner_filename` / `inner_md5` | 文件夹模式下当前内层文件的文件名与内容 MD5 |
+| `file_path` | 打开时使用的完整路径 |
+| `timestamp` / `saved_at` | 保存时间（时间戳 / `YYYY-mm-dd HH:MM:SS`） |
+| `record_version` / `app_version` | 记录格式版本与写入时的程序版本 |
+
+旧记录缺少的字段会在读取时自动补齐（`key_type` / `md5` / `filename`），
+下次自动保存时落盘；`record_version` / `saved_at` 由管理器写入，调用方无需关心。
+
+文件夹模式恢复位置时优先按 `inner_filename` 定位当前文件，
+因此往文件夹里增删书籍、导致排序变化后仍能接着原来那本读。
+
+## 开发说明
+
+### 模块结构
+
+项目已按职责拆分为 `enm` 包，入口文件 `EpubNovelMaster.py` 只负责创建 `QApplication`
+并显示主窗口。
+
+```text
+enm/
+├── constants.py          # 版本号、数据目录、语言/图标路径等全局常量
+├── logger.py             # Logger 单例，同时输出到控制台与日志文件
+├── managers/
+│   ├── config.py         # ConfigManager：程序配置读写
+│   ├── language.py       # LanguageManager：多语言翻译
+│   ├── progress.py       # ReadingProgressManager：阅读进度记录
+│   └── theme.py          # ThemeManager：主题的加载/保存/导入导出
+├── readers/
+│   ├── base.py           # BaseReader、ReaderError 与通用工具函数
+│   ├── epub.py           # EpubReader
+│   ├── txt.py            # TxtReader
+│   ├── pdf.py            # PdfReader
+│   ├── mobi.py           # MobiReader（MOBI/AZW/AZW3/PRC）
+│   ├── umd.py            # UmdReader
+│   ├── docx.py           # DocxReader
+│   ├── fb2.py            # Fb2Reader
+│   ├── html.py           # HtmlReader（HTML/HTM/XHTML）
+│   ├── archive.py        # ArchiveReader / ZipReader / JarReader
+│   ├── images.py         # 内嵌图片处理：magic 探测、data URI 内联与体积限制
+│   ├── factory.py        # 扩展名注册表与 create_reader() 工厂
+│   └── folder.py         # FolderReader：文件夹批量阅读
+└── ui/
+    ├── main_window.py    # EpubNovelMaster 主窗口
+    └── theme_dialog.py   # ThemeGeneratorDialog 主题生成器
+```
+
+### 阅读器接口
+
+所有阅读器都必须继承 `BaseReader`，并对外提供统一接口：
+
+- `get_chapter_count()`：章节数量
+- `get_chapter_title(index)`：章节标题
+- `get_chapter_content(index)`：章节内容（HTML 片段，不含标题）
+- `get_book_info()`：返回 `{"title": ..., "author": ...}`，缺失时用空字符串
+- `close()`：释放临时资源（`BaseReader` 默认清理临时目录，可 `super().close()` 后追加清理）
+- `current_chapter`：当前章节下标
+
+书名与作者由 `_set_book_info(title=None, author=None)` 填写，只在字段为空时赋值，
+因此后解析到的信息不会覆盖已有值；缺书名时由调用方回退到文件名。
+
+### 章节标题去重
+
+部分电子书的章节正文里自带 `<h1>`/`<title>` 标题，而渲染时
+`format_chapter_html()` 又会在正文前插入 `<h3>标题</h3>`，导致标题显示两次。
+
+为此 `BaseReader.format_chapter_html()` 会先调用 `strip_duplicate_title(body, title)`：
+只检查正文**开头**（允许前面有 XML 声明 / DOCTYPE / 注释）的第一个 `<h1>`–`<h6>`，
+当它的纯文本等于章节标题、或是标题的长度 ≥3 的前缀时才删除；
+正文中途的小标题、文字不同的标题都不受影响。`TxtReader` 在切分章节时
+也直接把标题行作为章节标题，不再写进正文。
+
+### 扩展支持
+
+添加新格式只需两步：
+
+1. 在 `enm/readers/` 下新建阅读器类（继承 `BaseReader`）；
+2. 在 `enm/readers/factory.py` 的 `EXTENSION_READERS` 中登记扩展名。
+
+如需在界面中单独分组，可同时更新 `FORMAT_GROUPS`。
+
+### 内嵌图片
+
+若新格式带有内嵌图片，只需实现一个解析函数并复用 `enm/readers/images.py`：
+
+```python
+from .images import inline_images
+
+def resolve(reference):
+    """reference 为章节里写的 src，返回 bytes 或 (bytes, mime)，失败返回 None"""
+    data = 从书中读取(reference)
+    return (data, 'image/png') if data else None
+
+html = inline_images(html, resolve)
+```
+
+`inline_images()` 会自动跳过远程地址与已有 `data:` URI，限制单张及整章
+图片体积（默认 8 MB / 32 MB），并把无法解析的图片标签直接移除，
+避免界面出现破损图标。
+
+随后 `BaseReader.format_chapter_html()` 会对 HTML 调用
+`isolate_block_images()`，让每张图片独占一个段落，分两种情况：
+
+- 图片和文字在同一个 `<p>` / `<div>` 里 → 拆成 `<p>文字</p><p><img …></p>`；
+- 图片根本没写在块里（`</p><img/><p>` 这种写法在电子书里很常见）→ 给图片
+  补一个自己的段落。
+
+这一步是必要的排版修正 —— 在 `QTextDocument` 中，行内图片会把**整行的
+行高**撑到图片高度，导致图片附近的文字出现巨大的行间距；拆开之后图片
+独占一段，行距即恢复正常（实测由约 1280 px 缩到 12 px 的段间距）。
+纯文字段落与图片独立成段的写法不受影响。
+
+## 许可证
+
+本项目采用 MIT 许可证。
+
+> 可选依赖 `mobi` 为 GPL-3.0-only 许可，默认不安装。
+
+## 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+## 更新日志
+
+### 未发布
+
+- 修复章节标题重复显示：正文自带的标题会被识别并去除（`strip_duplicate_title()`），
+  TXT 的标题行也不再重复出现在正文中
+- 统一阅读器基类：`EpubReader` / `TxtReader` / `FolderReader` 现均继承 `BaseReader`，
+  `get_book_info()` 统一返回 `{"title", "author"}` 字典，`close()` 统一释放资源
+- 阅读记录改为按文件内容哈希标识（移动/重命名/多副本仍能续读），
+  旧的路径哈希记录在首次打开时自动迁移
+- 阅读记录新增元数据：`filename`、`md5`、`novelname`、`author`、`key_type`、
+  `file_size`、`total_chapters`、`chapter_title`、`inner_filename`/`inner_md5`、
+  `record_version`、`saved_at`；文件夹模式按内层文件名恢复位置
+
+### v1.0.0
+
+- 初始版本发布
+- 支持 EPUB 和 TXT 格式
+- 文件夹模式阅读
+- 主题切换和自定义
+- 多语言支持（简体中文、英语）
+- 自动保存功能
+
+### v1.1.0
+
+- 新增 PDF、MOBI/AZW/AZW3/PRC、UMD、DOCX、FB2、HTML/XHTML 及 ZIP/JAR 支持
+- 新增内嵌图片显示：EPUB、DOCX、FB2、MOBI、UMD、HTML 与压缩包中的图片自动内联并自适应宽度
+- 项目按职责拆分为 `enm` 包（常量 / 管理器 / 阅读器 / 界面）
+- 新增 PowerShell 版脚本（`run.ps1` / `run_debug.ps1` / `build.ps1` / `build-advanced.ps1` / `clean.ps1`）
+- 新增 `install.ps1` / `install.bat`：无虚拟环境时自动创建并安装依赖
+- pip 安装自动测速选择镜像源，镜像失效时自动换源
+- 打包脚本在虚拟环境缺少 Nuitka 时自动回退到本机环境
