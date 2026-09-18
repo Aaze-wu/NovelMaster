@@ -21,7 +21,15 @@ class ConfigManager:
             "window_size": [1200, 800],
             "window_position": [100, 100],
             "sidebar_visible": True,
+            # 章节列表宽度：拖动主窗口里的分隔条后写回这里（v1.3.3 之前是写死的）
+            "sidebar_width": 300,
             "restore_scroll_position": True,
+            # 以下两个开关都默认关闭：
+            # * titlebar_follow_theme —— 让 Windows 原生标题栏跟着主题的 titlebar
+            #   颜色走（Win11 22H2+ 生效；更老的系统只切深浅模式）
+            # * typography_follow_theme —— 允许主题自带的字体/字号/行距覆盖全局设置
+            "titlebar_follow_theme": False,
+            "typography_follow_theme": False,
             "shortcuts": {}
         }
         self.config = self.load_config()

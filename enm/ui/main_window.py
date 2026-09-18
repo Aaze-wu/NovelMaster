@@ -6,33 +6,61 @@ from pathlib import Path
 
 from PyQt5.QtCore import QEvent, Qt, QTimer
 from PyQt5.QtGui import QFont, QIcon, QImage, QKeySequence, QTextCursor
-from PyQt5.QtWidgets import (QAction, QDialog, QFileDialog, QFontDialog,
-                             QHBoxLayout, QInputDialog, QLabel, QMainWindow,
-                             QMessageBox, QProgressBar, QPushButton, QTextEdit,
-                             QToolBar, QTreeWidget, QTreeWidgetItem,
-                             QVBoxLayout, QWidget)
+from PyQt5.QtWidgets import (QAction, QApplication, QDialog, QFileDialog,
+                             QFontDialog, QHBoxLayout, QInputDialog, QLabel,
+                             QMainWindow, QMessageBox, QProgressBar,
+                             QPushButton, QSplitter, QTextEdit, QToolBar,
+                             QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from .. import i18n
 from ..constants import (AUTHOR_NAME, DEBUG_MODE, ICON_PATH, PROJECT_NAME,
                          VERSION)
 from ..managers import (ConfigManager, DEFAULT_THEME, ReadingProgressManager,
-                        ThemeManager, format_timestamp, split_file_key)
+                        ThemeManager, format_timestamp, is_dark,
+                        split_file_key)
 from ..readers import (SUPPORTED_EXTENSIONS, FolderReader, ReaderError,
                        build_open_file_filter, create_reader,
                        format_chapter_html, supported_extensions_text)
 from ..shortcuts import (ACTION_DEFS, DEFS_BY_ID, READER, WINDOW,
                          ShortcutManager, event_key_sequence, key_sequence,
                          label_of)
+from .chapter_tree import ChapterTree
 from .continue_dialog import ContinueReadingDialog
+from .dialog_help_button import install as install_dialog_help_filter
+from .dialog_titlebar import install as install_dialog_titlebar_filter
+from .qt_translations import install as install_qt_translations
 from .shortcut_dialog import ShortcutSettingsDialog
 from .theme_dialog import describe_theme_errors, theme_display_label
 from .theme_manager_dialog import ThemeManagerDialog
-from .theme_qss import build_style_sheet
+from .theme_qss import (SPLITTER_HANDLE_WIDTH, build_palette,
+                        build_style_sheet)
+from .titlebar import (apply_dark_mode, apply_titlebar_theme, available,
+                       reset_titlebar_theme)
 from ..logger import logger
 
 # 阅读区字号范围（字体增大 / 减小用）
 FONT_SIZE_MIN = 8
 FONT_SIZE_MAX = 48
+
+# 侧边栏（章节列表）宽度：默认沿用旧版写死的值；用户拖过分隔条之后
+# 实际宽度会记到 config.json 的 sidebar_width，下次启动照旧
+SIDEBAR_WIDTH_DEFAULT = 300
+SIDEBAR_WIDTH_MIN = 160
+SIDEBAR_WIDTH_MAX = 720
+# 阅读区最小宽度：侧边栏最多能拖多宽，由「窗口宽度 - 它」反推，别把正文挤没
+READER_WIDTH_MIN = 280
+# 拖动分隔条会连着发 splitterMoved，等手停下来再写盘（毫秒）
+SIDEBAR_WIDTH_SAVE_DELAY = 400
+
+
+def clamp_sidebar_width(value):
+    """把侧边栏宽度夹进合法区间（手改过 config.json 也不会把界面搞坏）"""
+    try:
+        width = int(value)
+    except (TypeError, ValueError):
+        width = SIDEBAR_WIDTH_DEFAULT
+    return max(SIDEBAR_WIDTH_MIN, min(width, SIDEBAR_WIDTH_MAX))
+
 
 class NovelMaster(QMainWindow):
     def __init__(self):
@@ -47,6 +75,9 @@ class NovelMaster(QMainWindow):
         # 界面语言（i18n 是全局单例，阅读器 / 对话框共用同一份翻译表）：
         # 必须在搭建界面之前套用，否则菜单等文案会是默认语言
         i18n.set_language(self.config_manager.get("language", i18n.DEFAULT_LANG))
+        # Qt 自己画的对话框（字体 / 颜色 / 输入框 / 消息框）的文案来自 Qt 的
+        # 翻译目录，不装的话永远英文（「字体选择」窗口的标题就是这种）
+        self._install_qt_translations()
         # 随语言刷新的文本（部件, 语言键, setter）
         self._text_bindings = []
         # 快捷键注册表（读取 config.json 里的自定义绑定）
@@ -71,6 +102,19 @@ class NovelMaster(QMainWindow):
         self.current_reader = None
         self.current_file_path = None
 
+        #: 当前生效的完整主题字典（apply_theme 写入；原生标题栏与子对话框共用）
+        self._current_theme = None
+
+        # Qt 自带对话框（字体 / 颜色 / 输入框 / 消息框）由 Qt 内部创建，外层拿不到
+        # 引用，没法在 showEvent 里上色，只能靠应用级事件过滤器兜住
+        self._dialog_titlebar_filter = install_dialog_titlebar_filter(
+            QApplication.instance(), self.dialog_titlebar_theme, parent=self)
+
+        # 同理，Qt 对话框标题栏上那个「?」（上下文帮助）按钮也去不掉引用，
+        # 靠应用级事件过滤器在窗口显示前清掉标志（见 dialog_help_button）
+        self._dialog_help_filter = install_dialog_help_filter(
+            QApplication.instance(), parent=self)
+
         # 内嵌图片尺寸缓存与自适应重算定时器
         self._image_widths = {}
         self.image_fit_timer = QTimer()
@@ -80,6 +124,13 @@ class NovelMaster(QMainWindow):
         # 自动保存定时器
         self.auto_save_timer = QTimer()
         self.auto_save_timer.timeout.connect(self.auto_save_progress)
+
+        # 拖动分隔条改侧边栏宽度：拖动过程中 splitterMoved 会连着发，
+        # 每次都写一次 config.json 太浪费，用个单次定时器等手停下来再落盘
+        self.sidebar_width_timer = QTimer()
+        self.sidebar_width_timer.setSingleShot(True)
+        self.sidebar_width_timer.setInterval(SIDEBAR_WIDTH_SAVE_DELAY)
+        self.sidebar_width_timer.timeout.connect(self._save_sidebar_width)
 
         # 阅读统计会话状态（仅窗口激活时计时）与待恢复的章内位置
         self._stats = self.empty_stats()
@@ -128,12 +179,22 @@ class NovelMaster(QMainWindow):
         
         # 主布局
         main_layout = QHBoxLayout(central_widget)
-        
+
+        # 章节列表和阅读区之间夹一条可拖动的分隔条：章节名长的时候把侧边栏
+        # 直接拖宽就行，宽度记在 config.json 的 sidebar_width 里
+        self.main_splitter = QSplitter(Qt.Horizontal)
+        self.main_splitter.setHandleWidth(SPLITTER_HANDLE_WIDTH)
+        # 不允许把某一边拖成 0（隐藏章节列表走的是「显示 / 隐藏章节列表」开关）
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.splitterMoved.connect(self._on_splitter_moved)
+        main_layout.addWidget(self.main_splitter)
+
         # 左侧边栏（章节列表）
         self.sidebar = QWidget()
         # 主题里用 #sidebar QLabel 限定标签配色，避免样式表渗到对话框
         self.sidebar.setObjectName("sidebar")
-        self.sidebar.setMaximumWidth(300)
+        self.sidebar.setMinimumWidth(SIDEBAR_WIDTH_MIN)
+        self.sidebar.setMaximumWidth(SIDEBAR_WIDTH_MAX)
         sidebar_layout = QVBoxLayout(self.sidebar)
         
         # 章节列表标题栏
@@ -151,7 +212,7 @@ class NovelMaster(QMainWindow):
         sidebar_header_layout.addWidget(self.toggle_sidebar_btn)
         sidebar_layout.addLayout(sidebar_header_layout)
         
-        self.chapter_tree = QTreeWidget()
+        self.chapter_tree = ChapterTree()
         self.chapter_tree.setHeaderHidden(True)  # 隐藏默认的标题栏
         self.chapter_tree.itemClicked.connect(self.on_chapter_selected)
         sidebar_layout.addWidget(self.chapter_tree)
@@ -162,7 +223,7 @@ class NovelMaster(QMainWindow):
         sidebar_layout.addWidget(self.progress_label)
         sidebar_layout.addWidget(self.progress_bar)
         
-        main_layout.addWidget(self.sidebar)
+        self.main_splitter.addWidget(self.sidebar)
         
         # 右侧阅读区域
         self.reader_widget = QWidget()
@@ -189,7 +250,11 @@ class NovelMaster(QMainWindow):
         control_layout.addWidget(self.next_btn)
         
         reader_layout.addLayout(control_layout)
-        main_layout.addWidget(self.reader_widget)
+        self.reader_widget.setMinimumWidth(READER_WIDTH_MIN)
+        self.main_splitter.addWidget(self.reader_widget)
+        # 多余的宽度全给阅读区，侧边栏保持自己那份
+        self.main_splitter.setStretchFactor(0, 0)
+        self.main_splitter.setStretchFactor(1, 1)
         
         # 创建菜单栏
         self.create_menus()
@@ -340,9 +405,9 @@ class NovelMaster(QMainWindow):
         read_menu.addAction(self._actions["nav.chapter_end"])
         
         # 设置菜单
-        view_menu = self.add_menu(menubar, "menu.settings")
+        settings_menu = self.add_menu(menubar, "menu.settings")
         
-        theme_menu = self.add_menu(view_menu, "menu.theme")
+        theme_menu = self.add_menu(settings_menu, "menu.theme")
         
         self.make_action("menu.theme_light",
                          lambda: self.change_theme("light"),
@@ -374,15 +439,15 @@ class NovelMaster(QMainWindow):
         # 字体设置
         self.make_action("menu.font_settings", self.change_font,
                          "view.font_dialog")
-        view_menu.addAction(self._actions["view.font_dialog"])
+        settings_menu.addAction(self._actions["view.font_dialog"])
         
         self.make_action("menu.font_increase", self.increase_font_size,
                          "view.font_inc")
-        view_menu.addAction(self._actions["view.font_inc"])
+        settings_menu.addAction(self._actions["view.font_inc"])
         
         self.make_action("menu.font_decrease", self.decrease_font_size,
                          "view.font_dec")
-        view_menu.addAction(self._actions["view.font_dec"])
+        settings_menu.addAction(self._actions["view.font_dec"])
         
         # 记住章内阅读位置
         self.restore_scroll_action = self.make_action(
@@ -390,15 +455,33 @@ class NovelMaster(QMainWindow):
         self.restore_scroll_action.setCheckable(True)
         self.restore_scroll_action.setChecked(
             self.config_manager.get("restore_scroll_position", True))
-        view_menu.addAction(self.restore_scroll_action)
+        settings_menu.addAction(self.restore_scroll_action)
+
+        # 原生标题栏跟随主题（默认关闭：保持系统默认样式）
+        self.titlebar_action = self.make_action(
+            "menu.titlebar_follow", self.toggle_titlebar_follow)
+        self.titlebar_action.setCheckable(True)
+        self.titlebar_action.setChecked(
+            self.config_manager.get("titlebar_follow_theme", False))
+        if not available():
+            self.titlebar_action.setEnabled(False)
+        settings_menu.addAction(self.titlebar_action)
+
+        # 允许主题自带的字体 / 字号 / 行距覆盖全局阅读设置
+        self.typography_action = self.make_action(
+            "menu.typography_follow", self.toggle_typography_follow)
+        self.typography_action.setCheckable(True)
+        self.typography_action.setChecked(
+            self.config_manager.get("typography_follow_theme", False))
+        settings_menu.addAction(self.typography_action)
         
         # 快捷键设置
         self.make_action("menu.shortcut_settings", self.open_shortcut_dialog,
                          "view.shortcut_config")
-        view_menu.addAction(self._actions["view.shortcut_config"])
+        settings_menu.addAction(self._actions["view.shortcut_config"])
         
         # 语言设置（选项来自 i18n.available_languages，新增语言无需改这里）
-        self.language_menu = self.add_menu(view_menu, "menu.language")
+        self.language_menu = self.add_menu(settings_menu, "menu.language")
         self.language_actions = {}
         for code in i18n.available_languages():
             action = QAction(i18n.language_name(code), self)
@@ -535,7 +618,8 @@ class NovelMaster(QMainWindow):
     
     def open_shortcut_dialog(self):
         """打开快捷键设置面板"""
-        dialog = ShortcutSettingsDialog(self.shortcut_manager, self)
+        dialog = ShortcutSettingsDialog(self.shortcut_manager, self,
+                                        titlebar_theme=self.dialog_titlebar_theme())
         if dialog.exec_() != QDialog.Accepted:
             return
         self.refresh_shortcuts()
@@ -604,6 +688,8 @@ class NovelMaster(QMainWindow):
             self.toggle_sidebar_btn.show()
         else:
             self.sidebar.hide()
+        # 恢复上次拖到的宽度（旧配置里没这个键就用默认值）
+        self.apply_sidebar_width()
         # 文案（显示 / 隐藏）已随之改变，刷新按钮、工具栏动作与提示文本
         self._refresh_sidebar_text()
         self.update_theme_menu()
@@ -615,13 +701,93 @@ class NovelMaster(QMainWindow):
         样式表统一由 :func:`enm.ui.theme_qss.build_style_sheet` 生成（主题编辑器
         的实时预览用的是同一份规则，所以预览看到的就是实际效果）；拿不到主题
         时 ``get_theme()`` 会兜底成浅色，不会因为配置里存了个坏名字就打不开。
+
+        同时把 :func:`enm.ui.theme_qss.build_palette` 生成的调色板设到
+        ``QApplication`` 上：滚动区视口、数值微调框、字体清单，以及 Qt 自带
+        对话框（字体 / 颜色 / 输入框）内部那些**只认调色板**的控件，光靠
+        样式表刷不到，深色主题下会留浅色底。设到应用级是为了不漏掉这些
+        不属于主窗口子树的控件（含 Qt 自带的顶层对话框）。
+
+        排版（字体 / 字号 / 行距）的优先级：``typography_follow_theme`` 打开且
+        主题自带排版 → 用主题的；否则 → 用 ``config.json`` 里的全局设置。
         """
         theme = self.theme_manager.get_theme(theme_name)
+        self._current_theme = theme
+
+        family, size, spacing = self.resolve_typography(theme)
+        if family:
+            self.reader_display.setFont(QFont(family, size))
         self.setStyleSheet(build_style_sheet(
-            theme,
-            font_size=self.config_manager.get("font_size", 12),
-            line_spacing=self.config_manager.get("line_spacing", 1.5),
-        ))
+            theme, font_size=size, line_spacing=spacing))
+        app = QApplication.instance()
+        if app is not None:
+            app.setPalette(build_palette(theme))
+
+        self.apply_native_titlebar(theme)
+
+    # ---------------- 原生标题栏与主题排版 ----------------
+
+    def resolve_typography(self, theme):
+        """当前该用的阅读排版 ``(font_family, font_size, line_spacing)``。
+
+        主题自带排版且开了「排版跟随主题」时用主题的，否则一律用全局设置——
+        这样主题和设置菜单里的字体对话框不会互相抢控制权。
+        """
+        family = self.config_manager.get("font_family", "Microsoft YaHei")
+        size = int(self.config_manager.get("font_size", 16) or 16)
+        spacing = float(self.config_manager.get("line_spacing", 1.8) or 1.8)
+
+        if not self.config_manager.get("typography_follow_theme", False):
+            return family, size, spacing
+        if not any(theme.get(field) for field in ("font_family", "font_size",
+                                                  "line_spacing")):
+            return family, size, spacing
+
+        return (theme.get("font_family") or family,
+                int(theme.get("font_size") or size),
+                float(theme.get("line_spacing") or spacing))
+
+    def titlebar_follow_enabled(self):
+        """是否让 Windows 原生标题栏跟着主题走"""
+        return bool(self.config_manager.get("titlebar_follow_theme", False))
+
+    def titlebar_theme(self):
+        """要套到标题栏上的主题字典；不上色时返回 ``None``"""
+        if not self.titlebar_follow_enabled():
+            return None
+        return getattr(self, "_current_theme", None)
+
+    def dialog_titlebar_theme(self):
+        """子对话框的标题栏该用哪套配色（和主窗口一致：一起上色 / 一起不上）"""
+        return self.titlebar_theme()
+
+    def apply_native_titlebar(self, theme=None, hwnd=None):
+        """把主题的标题栏配色刷到原生窗口上。
+
+        Win11 22H2（Build 22000）以上：标题栏底色、文字色、边框色全上；
+        更老的系统这些属性会被拒，退化成「只切深浅模式」（按标题栏底色明度
+        自动选），至少让系统画的三个按钮不至于和深色背景糊在一起。
+        窗口还没 ``show()`` 时句柄无效，调用会静默失败——``changeEvent``
+        里会补一次。
+        """
+        if not available():
+            return 0
+        if hwnd is None:
+            hwnd = int(self.winId())
+
+        if not self.titlebar_follow_enabled() or not theme:
+            reset_titlebar_theme(hwnd)
+            return 0
+
+        applied = apply_titlebar_theme(hwnd, theme)
+        if applied:
+            return applied
+
+        # 一个属性都没写成功（老系统）：退化成只切深浅。底色取 titlebar，
+        # 没推导出来就退到 background
+        base = theme.get("titlebar") or theme.get("background") or "#FFFFFF"
+        apply_dark_mode(hwnd, is_dark(base))
+        return 0
 
     def apply_font(self, font_family, font_size):
         """应用字体设置"""
@@ -806,10 +972,18 @@ class NovelMaster(QMainWindow):
             self.image_fit_timer.start(150)
 
     def changeEvent(self, event):
-        """窗口激活状态变化时开始/暂停阅读计时"""
+        """窗口状态变化时的处理。
+
+        * ``ActivationChange``：开始 / 暂停阅读计时；
+        * ``Show`` / ``WinIdChange``：窗口刚显示、或原生窗口被重建（切窗口标志、
+          从最大化还原等）后，原来的 DWM 属性可能丢了，得重新刷一遍。
+        """
         super().changeEvent(event)
-        if event.type() == QEvent.ActivationChange:
+        event_type = event.type()
+        if event_type == QEvent.ActivationChange:
             self.on_activation_changed(self.isActiveWindow())
+        elif event_type in (QEvent.Show, QEvent.WinIdChange):
+            self.apply_native_titlebar(getattr(self, "_current_theme", None))
 
     def fit_document_images(self):
         """把超过阅读区宽度的内嵌图片缩小到阅读区宽度"""
@@ -1468,9 +1642,22 @@ class NovelMaster(QMainWindow):
         if not checked:
             self._pending_scroll_percent = 0.0
 
+    def toggle_titlebar_follow(self, checked):
+        """切换「原生标题栏跟随主题」"""
+        self.config_manager.set("titlebar_follow_theme", bool(checked))
+        current = self.config_manager.get("theme", DEFAULT_THEME)
+        self.apply_theme(current)
+
+    def toggle_typography_follow(self, checked):
+        """切换「排版跟随主题」（大小依赖主题自带的字体 / 字号 / 行距）"""
+        self.config_manager.set("typography_follow_theme", bool(checked))
+        current = self.config_manager.get("theme", DEFAULT_THEME)
+        self.apply_theme(current)
+
     def show_continue_reading(self):
         """打开「继续阅读」面板，选中记录后直接接着读"""
-        dialog = ContinueReadingDialog(self.progress_manager, self)
+        dialog = ContinueReadingDialog(self.progress_manager, self,
+                                       titlebar_theme=self.dialog_titlebar_theme())
         if dialog.exec_() != QDialog.Accepted or not dialog.selected_path:
             return
         
@@ -1512,6 +1699,9 @@ class NovelMaster(QMainWindow):
         
         if self.sidebar_visible:
             self.sidebar.show()
+            # QSplitter 在侧边栏隐藏期间会把它的宽度压成 0，显示回来时得
+            # 重新摆一次，否则章节列表恢复出来只有一条缝
+            self.apply_sidebar_width()
         else:
             self.sidebar.hide()
         
@@ -1520,6 +1710,36 @@ class NovelMaster(QMainWindow):
         
         # 保存侧边栏状态到配置
         self.config_manager.set("sidebar_visible", self.sidebar_visible)
+
+    # ---------------- 侧边栏宽度（分隔条） ----------------
+
+    def apply_sidebar_width(self):
+        """按配置里的宽度摆好分隔条位置。
+
+        QSplitter 分的是「两边各占多少」，所以把宽度换算成
+        ``[侧边栏, 剩下的全给阅读区]``；窗口尺寸变化时 QSplitter 会按这个
+        比例自己折算，所以窗口还没真正显示出来也能先设。
+        """
+        width = clamp_sidebar_width(
+            self.config_manager.get("sidebar_width", SIDEBAR_WIDTH_DEFAULT))
+        total = max(self.main_splitter.width(), self.width(), 1)
+        self.main_splitter.setSizes([width, max(1, total - width)])
+
+    def _on_splitter_moved(self, _position, _index):
+        """拖动中：只重启定时器，等手停下来再落盘"""
+        self.sidebar_width_timer.start()
+
+    def _save_sidebar_width(self):
+        """把当前侧边栏宽度写进配置。
+
+        侧边栏隐藏时 QSplitter 会把它的宽度压成 0，这时写进去等于把用户
+        之前拖出来的宽度冲掉，所以直接跳过。
+        """
+        if not self.sidebar_visible:
+            return
+        width = self.sidebar.width()
+        if width > 0:
+            self.config_manager.set("sidebar_width", width)
     
     def current_theme_name(self):
         """当前主题键（配置里的值；已经不存在时返回默认主题）"""
@@ -1572,19 +1792,26 @@ class NovelMaster(QMainWindow):
             self.config_manager.get("font_family", "Microsoft YaHei"),
             self.config_manager.get("font_size", 16)
         )
-        
-        font, ok = QFontDialog.getFont(current_font, self)
-        if ok:
-            family = font.family()
-            size = font.pointSize()
-            if size <= 0:
-                # 选到的是按像素定义的字号，退回原值，避免样式表里出现非法数值
-                size = int(self.config_manager.get("font_size", 16) or 16)
-            self.config_manager.set("font_family", family)
-            self.config_manager.set("font_size", size)
-            self.apply_font(family, size)
-            # 主题样式表里也写了字号，改完字体要重新套用一次才生效
-            self.apply_theme(self.config_manager.get("theme", "light"))
+
+        # 不用 QFontDialog.getFont() 静态函数：它建的对话框拿不到引用，
+        # 标题与标题栏都没法控制（标题默认是 Qt 自己的 "Select Font"，
+        # 而标题栏要靠主窗口的应用级事件过滤器上色，也只能是可见的窗口）
+        dialog = QFontDialog(current_font, self)
+        dialog.setWindowTitle(i18n.t("menu.font_settings"))
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        font = dialog.selectedFont()
+        family = font.family()
+        size = font.pointSize()
+        if size <= 0:
+            # 选到的是按像素定义的字号，退回原值，避免样式表里出现非法数值
+            size = int(self.config_manager.get("font_size", 16) or 16)
+        self.config_manager.set("font_family", family)
+        self.config_manager.set("font_size", size)
+        self.apply_font(family, size)
+        # 主题样式表里也写了字号，改完字体要重新套用一次才生效
+        self.apply_theme(self.config_manager.get("theme", "light"))
     
     def increase_font_size(self):
         """字体增大"""
@@ -1618,8 +1845,23 @@ class NovelMaster(QMainWindow):
             return
         
         self.config_manager.set("language", lang_code)
+        # Qt 自己画的对话框（字体 / 颜色 / 输入框 / 消息框）得换一套目录，
+        # 否则它们还停在上一门语言
+        self._install_qt_translations()
         # 日志由 LanguageManager.set_language 统一输出，这里不再重复记录
         self.retranslate_ui()
+    
+    def _install_qt_translations(self):
+        """按当前界面语言装卸 Qt 自带翻译（见 :mod:`enm.ui.qt_translations`）
+
+        影响的是 Qt 自己画的对话框（字体选择、颜色选择、输入框、消息框）
+        的标题 / 标签 / 按钮 —— 这些文案不在 ``lang/*.json`` 里，得靠 Qt 的
+        ``.qm`` 目录。英文时只卸载不加载（Qt 源语言就是英文）。
+        """
+        files = install_qt_translations(QApplication.instance(),
+                                        i18n.current_language())
+        if DEBUG_MODE:
+            self.logger.debug(f"Qt 翻译: {files or '（无，用 Qt 源语言）'}")
     
     def _theme_choices(self):
         """(显示名, 主题键) 列表，用于让用户挑选一个主题"""
@@ -1720,9 +1962,14 @@ class NovelMaster(QMainWindow):
 
     def open_theme_manager(self):
         """打开主题管理对话框（新建 / 编辑 / 复制 / 改名 / 删除 / 导入导出）"""
-        dialog = ThemeManagerDialog(self.theme_manager, self.current_theme_name(),
-                                    self, ui_theme=self.theme_manager.get_theme(
-                                        self.current_theme_name()))
+        current = self.current_theme_name()
+        family, size, spacing = self.resolve_typography(
+            self.theme_manager.get_theme(current))
+        dialog = ThemeManagerDialog(
+            self.theme_manager, current, self,
+            ui_theme=self.theme_manager.get_theme(current),
+            titlebar_theme=self.dialog_titlebar_theme(),
+            font_family=family, font_size=size, line_spacing=spacing)
         dialog.exec_()
         # 对话框只记录「之后要应用哪个主题」，配置与主窗口由这里统一更新
         self.theme_manager.reload()
@@ -1774,6 +2021,8 @@ class NovelMaster(QMainWindow):
         # 保存窗口设置
         self.config_manager.set("window_size", [self.width(), self.height()])
         self.config_manager.set("window_position", [self.x(), self.y()])
+        # 侧边栏宽度：拖完 400ms 内就关窗口的话防抖定时器还没跑，这里补一次
+        self._save_sidebar_width()
         
         # 保存阅读进度
         self.save_reading_progress()
@@ -1783,6 +2032,7 @@ class NovelMaster(QMainWindow):
         
         # 停止自动保存定时器
         self.auto_save_timer.stop()
+        self.sidebar_width_timer.stop()
         
         # 释放阅读器（清理 ZIP/JAR/MOBI 等解压出来的临时文件）
         self.release_current_reader()

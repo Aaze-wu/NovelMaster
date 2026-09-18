@@ -291,8 +291,10 @@ function Resolve-BasePython {
         # 不能用虚拟环境自身的解释器去创建虚拟环境
         if ($candidate -like "$VenvPath*") { continue }
 
+        # 探针不含英文双引号：PowerShell 5.1 不会对 native 参数转义引号，
+        # 带双引号的 -c 会被 python.exe 命令行解析吞掉引号而报语法错误。
         $probe = Invoke-Quiet -Exe $candidate -Arguments @(
-            '-c', 'import venv, sys; print(sys.version.split()[0])'
+            '-c', 'import venv,sys;print(*sys.version_info[:3],sep=chr(46))'
         )
         if ($probe.ExitCode -eq 0) {
             return [pscustomobject]@{ Path = $candidate; Version = $probe.Output.Trim() }
@@ -309,7 +311,8 @@ function Test-InstalledModules {
         [Parameter(Mandatory = $true)][string[]]$Modules
     )
 
-    $probe = 'import importlib.util, sys; print(",".join([m for m in sys.argv[1].split(",") if importlib.util.find_spec(m) is None]))'
+    # 同上：整段探针不含英文双引号，用 chr(44) 代表逗号。
+    $probe = 'import importlib.util, sys; print(chr(44).join([m for m in sys.argv[1].split(chr(44)) if importlib.util.find_spec(m) is None]))'
     $result = Invoke-Quiet -Exe $Exe -Arguments @('-c', $probe, ($Modules -join ','))
     if ($result.ExitCode -ne 0) { return @() }
 
@@ -469,7 +472,7 @@ $requiredModules = @('PyQt5', 'PyQt5.QtWebEngineWidgets', 'ebooklib', 'lxml', 'c
 $missing = @(Test-InstalledModules -Exe $VenvPython -Modules $requiredModules)
 
 $runtimeVersion = (Invoke-Quiet -Exe $VenvPython -Arguments @(
-        '-c', 'import sys; print(sys.version.split()[0])'
+        '-c', 'import sys;print(*sys.version_info[:3],sep=chr(46))'
     )).Output.Trim()
 Write-Info "虚拟环境 Python: $runtimeVersion"
 

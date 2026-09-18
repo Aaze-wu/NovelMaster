@@ -38,6 +38,7 @@ from PyQt5.QtWidgets import (
 from .. import i18n
 from ..constants import PROJECT_NAME
 from ..logger import logger
+from .titlebar import apply_to_widget
 
 # 表格列（序号常量不随语言变化，标题文字随时从语言文件取）
 (
@@ -135,19 +136,26 @@ class _RecordItem(QTreeWidgetItem):
 class ContinueReadingDialog(QDialog):
     """汇集所有阅读记录的对话框"""
 
-    def __init__(self, progress_manager, parent=None):
+    def __init__(self, progress_manager, parent=None, titlebar_theme=None):
         super().__init__(parent)
         self.progress_manager = progress_manager
         # 用户选定要打开的路径，由主窗口读取
         self.selected_path = ""
         # [(记录文件路径, 记录内容, 文件是否还在)]
         self.records = []
+        #: 本对话框自己的标题栏用哪套配色（showEvent 里才会真正套上去）
+        self._titlebar_theme = titlebar_theme
 
         self.setWindowTitle(i18n.t("dialog.continue_reading", app=PROJECT_NAME))
         self.setModal(True)
         self.resize(900, 520)
         self.setup_ui()
         self.reload()
+
+    def showEvent(self, event):
+        """窗口真正显示之后才给标题栏上色（此刻 winId 才拿到有效句柄）"""
+        super().showEvent(event)
+        apply_to_widget(self, self._titlebar_theme)
 
     # ---------------- 界面 ----------------
 
@@ -184,6 +192,10 @@ class ContinueReadingDialog(QDialog):
             COLUMN_LAST,
         ):
             header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
+        # 样式表里把 Qt 自带的排序箭头藏掉了（深色主题下它是块白斑），
+        # 排序方向改由表头文字里的 ↑ / ↓ 表示
+        header.sortIndicatorChanged.connect(self.refresh_header_labels)
+        self.refresh_header_labels()
         layout.addWidget(self.record_tree, 1)
 
         self.summary_label = QLabel("")
@@ -207,6 +219,20 @@ class ContinueReadingDialog(QDialog):
         layout.addLayout(button_layout)
 
     # ---------------- 数据 ----------------
+
+    def refresh_header_labels(self, *_args):
+        """表头文字带上排序方向标记（↑=升序，↓=降序）
+
+        Qt 自带的排序箭头是系统调色板画的，样式表改不了它的颜色，深色主题下会
+        变成表头上的一块白斑；所以样式表里把箭头藏掉，方向改用这两个符号表示。
+        符号与语言无关，不需要额外的语言键。
+        """
+        titles = column_titles()
+        column = self.record_tree.sortColumn()
+        if 0 <= column < len(titles):
+            ascending = self.record_tree.header().sortIndicatorOrder() == Qt.AscendingOrder
+            titles[column] += " ↑" if ascending else " ↓"
+        self.record_tree.setHeaderLabels(titles)
 
     def reload(self):
         """重新读取所有阅读记录并刷新列表"""

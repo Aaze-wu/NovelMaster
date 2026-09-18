@@ -24,16 +24,19 @@ from ..logger import logger
 from ..shortcuts import (DEFS_BY_ID, display_text, group_label,
                          grouped_definitions, hint_of, label_of,
                          normalise_sequence)
+from .titlebar import apply_to_widget
 
 
 class ShortcutSettingsDialog(QDialog):
     """快捷键设置对话框"""
 
-    def __init__(self, shortcut_manager, parent=None):
+    def __init__(self, shortcut_manager, parent=None, titlebar_theme=None):
         super().__init__(parent)
         self.shortcut_manager = shortcut_manager
         # 动作 id -> QKeySequenceEdit
         self.editors = {}
+        #: 本对话框自己的标题栏用哪套配色（showEvent 里才会真正套上去）
+        self._titlebar_theme = titlebar_theme
 
         self.setWindowTitle(i18n.t("dialog.shortcut_settings"))
         self.resize(560, 620)
@@ -72,6 +75,11 @@ class ShortcutSettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         button_row.addWidget(buttons)
         layout.addLayout(button_row)
+
+    def showEvent(self, event):
+        """窗口真正显示之后才给标题栏上色（此刻 winId 才拿到有效句柄）"""
+        super().showEvent(event)
+        apply_to_widget(self, self._titlebar_theme)
 
     # ---------------- 构建界面 ----------------
 

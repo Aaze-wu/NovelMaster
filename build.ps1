@@ -8,10 +8,13 @@
     （--standalone --onefile）。脚本会自动检测 Nuitka，缺失时尝试安装。
 
 .PARAMETER Python
-    指定 Python 解释器的命令或完整路径，默认为 PATH 中的 python。
+    指定用于打包的 Python 解释器，三种写法都支持：版本号（3.13 / 3.13.6）、
+    命令名（python / python3 / py）、完整路径（C:\...\python.exe）。
+    不指定时优先使用项目 .venv，其次才是 PATH 与本机已安装的 Python。
 
 .PARAMETER UseVenv
     优先使用项目目录下的 .venv\Scripts\python.exe。
+    该项目已是默认行为，参数保留仅为兼容旧命令行。
 
 .PARAMETER OutputDir
     输出目录名（相对项目根目录），默认为 dist。
@@ -86,6 +89,9 @@ $MainFile = Join-Path $ProjectRoot $MainFileName
 $IconFile = Join-Path $ProjectRoot 'icon\icon.ico'
 $OutputDirPath = Join-Path $ProjectRoot $OutputDir
 $DefaultDescription = 'NovelMaster - 现代化小说阅读器'
+
+# $Python 的默认值是 'python'，这里记住用户到底有没有显式指定（显式指定优先级最高）
+$PythonWasSpecified = $PSBoundParameters.ContainsKey('Python')
 
 function Write-Info { param([string]$Message) Write-Host "[信息] $Message" -ForegroundColor Cyan }
 function Write-Ok { param([string]$Message) Write-Host "[成功] $Message" -ForegroundColor Green }
@@ -226,47 +232,277 @@ function Install-NuitkaWithMirror {
     return $null
 }
 
-function Resolve-Python {
-    if ($UseVenv) {
-        $venvPython = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
-        if (Test-Path -LiteralPath $venvPython) { return $venvPython }
-        Write-Warn "未找到虚拟环境解释器: $venvPython，改用系统 Python"
+# ---------------- 解释器发现 ----------------
+
+$script:PythonVersionCache = @{}
+$script:InstalledPythonCache = $null
+
+# Microsoft Store 的“应用执行别名”：这个路径上的 python.exe 一运行就弹商店，
+# 探测时必须跳过，否则会被当成一个“没有 Nuitka 的解释器”。
+$script:FakePythonPatterns = @('\Microsoft\WindowsApps\')
+
+function Test-UsablePythonPath {
+    <# 判断一个路径是否是可以真正执行的 python.exe #>
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+    foreach ($pattern in $script:FakePythonPatterns) {
+        if ($Path -like "*$pattern*") { return $false }
     }
-    foreach ($name in @($Python, 'python', 'py')) {
-        if ([string]::IsNullOrWhiteSpace($name)) { continue }
+    return (Test-Path -LiteralPath $Path -PathType Leaf)
+}
+
+function Get-PythonVersion {
+    <# 取解释器版本号（形如 3.13.6），取不到返回 $null #>
+    param([Parameter(Mandatory = $true)][string]$Exe)
+
+    if ($script:PythonVersionCache.ContainsKey($Exe)) { return $script:PythonVersionCache[$Exe] }
+
+    # 注意：探针不能包含英文双引号。Windows PowerShell 5.1 不会对 native 参数转义引号，
+    # 双引号会被 python.exe 的命令行解析吞掉（print(".") → print(.)），导致语法错误、
+    # 进而扫不到任何解释器。这里用 chr(46) 代替 '.'，整段探针不含引号。
+    $probe = 'import sys;print(*sys.version_info[:3],sep=chr(46))'
+    $result = Invoke-Quiet -Exe $Exe -Arguments @('-c', $probe)
+    $version = $null
+    if ($result.ExitCode -eq 0) {
+        $line = $result.Output -split "`r?`n" |
+            Where-Object { $_ -match '^\d+\.\d+' } |
+            Select-Object -First 1
+        if ($line) { $version = $line.Trim() }
+    }
+
+    $script:PythonVersionCache[$Exe] = $version
+    return $version
+}
+
+function Get-RealPythonPath {
+    <# py.exe 只是启动器，问它要真正的解释器路径；其它情况原样返回 #>
+    param([string]$Exe)
+
+    if ([string]::IsNullOrWhiteSpace($Exe)) { return $null }
+    if ([System.IO.Path]::GetFileNameWithoutExtension($Exe) -ne 'py') { return $Exe }
+
+    $result = Invoke-Quiet -Exe $Exe -Arguments @('-c', 'import sys; print(sys.executable)')
+    if ($result.ExitCode -ne 0) { return $Exe }
+    $line = $result.Output -split "`r?`n" |
+        Where-Object { $_ -match 'python\.exe' } |
+        Select-Object -First 1
+    if ($line -and (Test-UsablePythonPath -Path $line.Trim())) { return $line.Trim() }
+    return $Exe
+}
+
+function Get-PyLauncherPaths {
+    <# 用 py 启动器（PEP 397）列出本机注册的所有解释器 #>
+    $py = Get-Command -Name 'py' -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $py) { return @() }
+
+    $result = Invoke-Quiet -Exe $py.Source -Arguments @('-0p')
+    if ($result.ExitCode -ne 0) { return @() }
+
+    $paths = New-Object System.Collections.Generic.List[string]
+    foreach ($line in ($result.Output -split "`r?`n")) {
+        $match = [regex]::Match($line, '[A-Za-z]:\\[^"]*?python\.exe')
+        if ($match.Success) { $null = $paths.Add($match.Value) }
+    }
+    return $paths
+}
+
+function Get-RegisteredPythonPaths {
+    <# 读注册表里官方安装包登记的 Python（PATH 里没有时也能找到） #>
+    $paths = New-Object System.Collections.Generic.List[string]
+    $roots = @(
+        'HKLM:\SOFTWARE\Python\PythonCore'
+        'HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore'
+        'HKCU:\SOFTWARE\Python\PythonCore'
+    )
+
+    foreach ($root in $roots) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        foreach ($tag in @(Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue)) {
+            $installKey = Join-Path $tag.PSPath 'InstallPath'
+            if (-not (Test-Path -LiteralPath $installKey)) { continue }
+
+            $item = Get-ItemProperty -LiteralPath $installKey -ErrorAction SilentlyContinue
+            if (-not $item) { continue }
+
+            foreach ($name in @('ExecutablePath', '(default)')) {
+                $property = $item.PSObject.Properties[$name]
+                if (-not $property) { continue }
+                $value = [string]$property.Value
+                if ([string]::IsNullOrWhiteSpace($value)) { continue }
+                if ($value.EndsWith('\')) { $value = Join-Path $value 'python.exe' }
+                $null = $paths.Add($value)
+            }
+        }
+    }
+    return $paths
+}
+
+function Get-CommonPythonPaths {
+    <# 常见安装位置兜底（官方安装包默认装在用户目录） #>
+    $roots = @(
+        (Join-Path $env:LOCALAPPDATA 'Programs\Python')
+        $env:LOCALAPPDATA
+        'C:\'
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+
+    $paths = New-Object System.Collections.Generic.List[string]
+    foreach ($root in $roots) {
+        $dirs = Get-ChildItem -LiteralPath $root -Directory -Filter 'Python3*' -ErrorAction SilentlyContinue
+        foreach ($dir in @($dirs)) {
+            $null = $paths.Add((Join-Path $dir.FullName 'python.exe'))
+        }
+    }
+    return $paths
+}
+
+function Find-InstalledPythons {
+    <#
+        扫描本机所有可用的 CPython，返回 [pscustomobject]@{ Path; Version } 列表，
+        版本从新到旧排序；结果会缓存，重复调用不会反复起进程。
+        来源：py 启动器 → 注册表 → 常见安装目录 → PATH 里的 python/python3。
+    #>
+    if ($script:InstalledPythonCache) { return $script:InstalledPythonCache }
+
+    $candidates = New-Object System.Collections.Generic.List[string]
+    foreach ($path in @(Get-PyLauncherPaths) + @(Get-RegisteredPythonPaths) + @(Get-CommonPythonPaths)) {
+        $null = $candidates.Add($path)
+    }
+    foreach ($name in @('python', 'python3')) {
         $command = Get-Command -Name $name -CommandType Application -ErrorAction SilentlyContinue |
             Select-Object -First 1
-        if ($command) { return $command.Source }
+        if ($command) { $null = $candidates.Add($command.Source) }
     }
+
+    $seen = New-Object System.Collections.Generic.List[string]
+    $found = New-Object System.Collections.Generic.List[object]
+
+    foreach ($path in $candidates) {
+        if (-not (Test-UsablePythonPath -Path $path)) { continue }
+        $full = $path
+        try { $full = (Resolve-Path -LiteralPath $path).Path } catch { }
+        if ($seen.Contains($full)) { continue }
+        $null = $seen.Add($full)
+
+        $version = Get-PythonVersion -Exe $full
+        if (-not $version) { continue }
+        $null = $found.Add([pscustomobject]@{ Path = $full; Version = $version })
+    }
+
+    $ordered = @($found | Sort-Object -Property @{ Expression = { [version]$_.Version }; Descending = $true })
+    $script:InstalledPythonCache = $ordered
+    return $ordered
+}
+
+function Get-InterpreterReport {
+    <# 列出本机所有解释器及其 Nuitka 状态，用于排查“为什么没用上我的 Python” #>
+    $rows = New-Object System.Collections.Generic.List[object]
+    foreach ($info in @(Find-InstalledPythons)) {
+        $null = $rows.Add([pscustomobject]@{
+                Path    = $info.Path
+                Version = $info.Version
+                Nuitka  = Test-NuitkaAvailable -Exe $info.Path
+            })
+    }
+    return $rows
+}
+
+function Resolve-PythonSpec {
+    <#
+        把 -Python / -NuitkaPython 的取值解析成解释器路径，三种写法都支持：
+          1. 版本号   3.13 / 3.13.6
+          2. 命令名   python / python3 / py
+          3. 完整路径 C:\...\python.exe
+        解析不出来返回 $null，由调用方决定是否退回自动发现。
+    #>
+    param([string]$Spec)
+
+    if ([string]::IsNullOrWhiteSpace($Spec)) { return $null }
+
+    if ($Spec -match '^\d+(\.\d+){0,2}$') {
+        $py = Get-Command -Name 'py' -CommandType Application -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($py) {
+            $result = Invoke-Quiet -Exe $py.Source -Arguments @("-V:$Spec", '-c', 'import sys; print(sys.executable)')
+            if ($result.ExitCode -eq 0) {
+                $line = $result.Output -split "`r?`n" |
+                    Where-Object { $_ -match 'python\.exe' } |
+                    Select-Object -First 1
+                if ($line -and (Test-UsablePythonPath -Path $line.Trim())) { return $line.Trim() }
+            }
+        }
+
+        foreach ($info in @(Find-InstalledPythons)) {
+            if ($info.Version -eq $Spec -or $info.Version.StartsWith("$Spec.")) { return $info.Path }
+        }
+
+        Write-Warn "本机未找到 Python $Spec"
+        return $null
+    }
+
+    $command = Get-Command -Name $Spec -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($command) {
+        if (Test-UsablePythonPath -Path $command.Source) { return (Get-RealPythonPath -Exe $command.Source) }
+        return $null
+    }
+    if (Test-UsablePythonPath -Path $Spec) { return (Get-RealPythonPath -Exe (Resolve-Path -LiteralPath $Spec).Path) }
+    return $null
+}
+
+function Resolve-Python {
+    <#
+        选默认解释器：
+        1. -Python 显式指定 → 按它解析（版本号 / 命令名 / 路径都行）；
+        2. 否则优先项目 .venv（install.ps1 把依赖装在这里，打出来的包才和开发环境一致）；
+        3. 再退回 PATH 里的 python/python3/py，最后是本机扫描到的其它 Python。
+    #>
+    if ($PythonWasSpecified) {
+        $explicit = Resolve-PythonSpec -Spec $Python
+        if ($explicit) { return $explicit }
+        Write-Warn "-Python $Python 无法解析，改用自动发现"
+    }
+
+    $venvPython = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
+    if (Test-UsablePythonPath -Path $venvPython) { return $venvPython }
+    if ($UseVenv) { Write-Warn "未找到虚拟环境解释器: $venvPython，改用系统 Python" }
+
+    foreach ($name in @('python', 'python3', 'py')) {
+        $resolved = Resolve-PythonSpec -Spec $name
+        if ($resolved) { return $resolved }
+    }
+
+    foreach ($info in @(Find-InstalledPythons)) { return $info.Path }
     return $null
 }
 
 function Get-PythonCandidates {
-    <# 候选解释器（去重）：-NuitkaPython → 项目 .venv → PATH 中的 python/python3/py #>
+    <#
+        回退搜索用的解释器候选（去重，保持优先级）：
+        -Python / -NuitkaPython → 项目 .venv → PATH 的 python/python3 → 本机扫描到的其它 Python
+    #>
     $candidates = New-Object System.Collections.Generic.List[string]
 
     $add = {
         param([string]$Path)
-        if ([string]::IsNullOrWhiteSpace($Path)) { return }
-        if (-not (Test-Path -LiteralPath $Path)) { return }
-        if (-not $candidates.Contains($Path)) { $null = $candidates.Add($Path) }
+        if (-not (Test-UsablePythonPath -Path $Path)) { return }
+        $full = $Path
+        try { $full = (Resolve-Path -LiteralPath $Path).Path } catch { }
+        if (-not $candidates.Contains($full)) { $null = $candidates.Add($full) }
     }
 
-    if (-not [string]::IsNullOrWhiteSpace($NuitkaPython)) {
-        $explicit = Get-Command -Name $NuitkaPython -CommandType Application -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-        if ($explicit) { & $add $explicit.Source }
-        elseif (Test-Path -LiteralPath $NuitkaPython) { & $add ((Resolve-Path -LiteralPath $NuitkaPython).Path) }
-    }
-
+    & $add (Resolve-PythonSpec -Spec $NuitkaPython)
+    & $add (Resolve-PythonSpec -Spec $Python)
     & $add (Join-Path $ProjectRoot '.venv\Scripts\python.exe')
 
-    foreach ($name in @($Python, 'python', 'python3', 'py')) {
-        if ([string]::IsNullOrWhiteSpace($name)) { continue }
+    foreach ($name in @('python', 'python3')) {
         $command = Get-Command -Name $name -CommandType Application -ErrorAction SilentlyContinue |
             Select-Object -First 1
         if ($command) { & $add $command.Source }
     }
+
+    foreach ($info in @(Find-InstalledPythons)) { & $add $info.Path }
 
     return $candidates
 }
@@ -321,7 +557,6 @@ function Resolve-BuildInterpreter {
         BuildPython   = $null
         NuitkaVersion = $null
         FellBack      = $false
-        Searched      = @()
     }
 
     $version = Test-NuitkaAvailable -Exe $Preferred
@@ -335,7 +570,6 @@ function Resolve-BuildInterpreter {
 
     foreach ($candidate in (Get-PythonCandidates)) {
         if ($candidate -eq $Preferred) { continue }
-        $info.Searched += $candidate
         $version = Test-NuitkaAvailable -Exe $candidate
         if ($version) {
             $info.BuildPython = $candidate
@@ -408,17 +642,6 @@ else {
             Write-Warn "已自动改用本机环境解释器: $buildPython"
             Write-Info "Nuitka  : $nuitkaVersion"
             Write-Host ''
-
-            $missing = @(Test-RuntimeDependencies -Exe $buildPython)
-            if ($missing.Count -gt 0) {
-                Write-Err "该解释器缺少运行依赖: $($missing -join ', ')"
-                Write-Warn '请先在该环境执行: .\install.ps1 -Python <该解释器路径>'
-                Write-Warn '或手动执行: pip install -r requirements.txt -i <镜像源>'
-                Write-Warn '打包将继续，但可能失败或生成不可用的程序。'
-            }
-            else {
-                Write-Ok '该解释器的运行依赖完整'
-            }
         }
         else {
             Write-Info "Python  : $pythonExe"
@@ -429,11 +652,15 @@ else {
         Write-Info "Python  : $pythonExe"
         Write-Warn '当前解释器与本机环境中均未找到 Nuitka'
 
-        if ($build.Searched.Count -gt 0) {
-            Write-Host '已检查的解释器:' -ForegroundColor DarkGray
-            foreach ($candidate in $build.Searched) {
-                Write-Host "  - $candidate" -ForegroundColor DarkGray
+        $report = @(Get-InterpreterReport)
+        if ($report.Count -gt 0) {
+            Write-Host '本机解释器扫描结果:' -ForegroundColor DarkGray
+            foreach ($row in $report) {
+                $state = if ($row.Nuitka) { "Nuitka $($row.Nuitka)" } else { '无 Nuitka' }
+                Write-Host ("  - Python {0,-8} {1,-16} {2}" -f $row.Version, $state, $row.Path) -ForegroundColor DarkGray
             }
+            Write-Host ''
+            Write-Warn '可用 -Python <版本号|命令名|路径> 指定要用的解释器，例如: -Python 3.13'
         }
 
         Write-Info "正在为当前解释器安装 Nuitka: $pythonExe"
@@ -471,6 +698,23 @@ if (-not (Test-Path -LiteralPath $MainFile)) {
     Write-Err "主文件不存在: $MainFile"
     Wait-Exit
     exit 1
+}
+
+# ---------------- 依赖自检 ----------------
+
+# 无论最后用哪个解释器，都确认一下打包要包含的第三方依赖是否齐全：
+# 缺依赖时 Nuitka 照样能编译，但打出来的 exe 一运行就崩。
+if (-not $SkipNuitkaCheck) {
+    $missingDeps = @(Test-RuntimeDependencies -Exe $buildPython)
+    if ($missingDeps.Count -gt 0) {
+        Write-Err "打包解释器缺少运行依赖: $($missingDeps -join ', ')"
+        Write-Warn "请先补齐依赖: .\install.ps1 -Python `"$buildPython`""
+        Write-Warn '或手动执行: pip install -r requirements.txt -i <镜像源>'
+        Write-Warn '打包将继续，但可能失败或生成不可用的程序。'
+    }
+    else {
+        Write-Ok "依赖完整: $buildPython"
+    }
 }
 
 $meta = Read-ProjectMetadata

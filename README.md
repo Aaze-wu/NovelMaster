@@ -12,7 +12,9 @@
 - 🔖 **继续阅读**: 独立的阅读记录面板，按最后阅读时间排序，支持搜索、删除与清理失效记录
 - 📊 **阅读统计**: 记录打开次数、阅读时长、已读章节数与最远章节
 - 📍 **位置记忆**: 重新打开书籍时回到上次的章节，并可记住章内滚动位置
-- 🎨 **主题系统**: 内置浅色 / 深色，支持新建、复制、重命名、导入导出与 8 套预设配色
+- 🎨 **主题系统**: 内置浅色 / 深色，13 个颜色字段 + 可选排版，16 套预设配色与一键派生，
+  支持新建、复制、重命名、导入导出
+- 🪟 **标题栏上色**: 可让 Windows 11 原生标题栏跟随主题配色（默认关闭）
 - ⌨️ **自定义快捷键**: 全部功能可改键（含方向键翻章），自动检测按键冲突
 - 🌍 **多语言支持**: 内置简体中文、繁体中文和英语，切换后界面立即刷新（无需重启）；
   往 `lang/` 里放一个 JSON 文件就能自动多出一种语言
@@ -173,16 +175,69 @@ PowerShell 版本与其参数完全对应：
 
 ### 自定义主题
 
-主题由 5 个颜色字段组成：`background`（底色）、`foreground`（文字）、
-`accent`（强调色，工具栏/进度条/选中项）、`highlight`（高亮/悬停）、`border`（边框）。
+主题由 13 个颜色字段组成，其中 5 个必需、8 个可选（留空即按必需色自动推导）：
+
+| 分组 | 字段 | 说明 |
+| --- | --- | --- |
+| 基础色（必需） | `background` | 底色 |
+| | `foreground` | 文字 |
+| | `accent` | 强调色（工具栏 / 进度条 / 选中项） |
+| | `highlight` | 高亮 / 悬停 |
+| | `border` | 边框 |
+| 窗口与标题栏 | `titlebar` | 标题栏底色（也用于窗口标题栏上色） |
+| | `titlebar_text` | 标题栏文字色 |
+| | `sidebar` | 侧边栏底色 |
+| | `tooltip` | 提示气泡色 |
+| 交互状态 | `selection` | 选中项色 |
+| | `disabled` | 禁用色 |
+| | `scrollbar` | 滚动条色 |
+| 阅读区 | `reader` | 阅读区底色（留空则用 `background`） |
+
+主题还可以可选地带上排版（`font_family` / `font_size` / `line_spacing`）。
 
 1. 点击"视图" → "主题" → "主题管理"（或菜单里的"导入主题"）
 2. 在管理面板里点"新建"打开主题编辑器
-3. 选一套预设（Visual Studio Dark / Solarized Light / Solarized Dark /
-   GitHub Light / Nord / Gruvbox Dark / Sepia / High Contrast），或逐个字段挑颜色
-   （也可以直接手输 `#RRGGBB`）；右侧是**真实控件**做的实时预览
-   （标签、按钮、禁用按钮、输入框、进度条、列表、下拉框）
-4. 保存后主题会出现在"视图" → "主题" → "自定义主题"子菜单里，点一下即可切换
+3. 三种起手方式任选：
+   - **选预设**：内置 16 套配色预设（Visual Studio Dark / Solarized Light /
+     Solarized Dark / GitHub Light / Nord / Gruvbox Dark / Sepia / High Contrast 等）；
+   - **以其它主题为起点**：挑一个已有主题铺进字段（一次性复制，保存后与它再无关联）；
+   - **一键派生**：只挑一个主色，其余 12 个颜色与深浅方向自动算出来
+4. 颜色字段都是色块按钮 + `#RRGGBB` 输入框，可选字段留空 = 自动推导；
+   右侧是**真实控件**做的实时预览（标题栏、标签、按钮、禁用按钮、输入框、
+   进度条、列表、下拉框、阅读区）
+5. 需要的话勾选"这套主题同时指定字体 / 字号 / 行距"，让主题自带排版
+6. 保存后主题会出现在"视图" → "主题" → "自定义主题"子菜单里，点一下即可切换
+
+### 标题栏跟随主题
+
+"视图"菜单里的 **"标题栏跟随主题（Windows 11）"**（默认关闭）会把主题的
+`titlebar` / `titlebar_text` 颜色推给 Windows 原生标题栏（`DwmSetWindowAttribute`）。
+
+- 需要 Windows 11（Build 22000+），旧系统上菜单项自动置灰；
+- 关掉开关会立刻恢复系统默认标题栏；
+- 系统不支持自定义颜色时，会退化成按主题明暗切深色 / 浅色标题栏；
+- 主题编辑器、主题管理面板、继续阅读面板、快捷键设置面板会一起用同一个标题栏配色；
+- **Qt 自己建的对话框也一样**：字体 / 颜色 / 输入框 / 消息框（`QFontDialog.getFont()`、
+  `QMessageBox.about()` 这类静态函数建出来的窗口）外层拿不到引用，
+  换由应用级事件过滤器（`enm/ui/dialog_titlebar.py`）在它们第一次 `show()` 时上色；
+- 完全不依赖 Qt 样式表（Windows 原生标题栏本来就不吃 QSS），
+  也**不会修改任何系统设置**，只影响本窗口。
+
+### Qt 自带对话框的语言
+
+字体选择、颜色选择、输入框、消息框的标题与内部标签来自 **Qt 自带的翻译目录**
+（`qt_zh_CN.qm` 之类），不在 `lang/*.json` 里，所以另由
+`enm/ui/qt_translations.py` 按当前语言装卸；字体对话框标题也改成显式取
+`menu.font_settings`（即"字体设置"）。
+
+- 目录从 `QLibraryInfo.TranslationsPath` 和 PyQt5 自带的 `Qt5/translations` 两处找；
+- `zh_CN` 用整体目录 `qt_zh_CN.qm`，`zh_TW` 用的是 `qtbase_zh_TW.qm`（目录拆法不同）；
+- **英文只卸载、不加载**：Qt 自带的英文目录（`qtbase_en.qm`）里每条文案都是
+  显式空串，装上反而会把标题和按钮全部变空白；
+- Qt 的中文目录里没有 `QPlatformTheme` 一节（标准按钮 `OK` / `Cancel` 的文案在那），
+  由一个小翻译器补上 `common.ok` / `common.cancel` / `common.close` /
+  `common.yes` / `common.no` 五个语言键；
+- 缺翻译目录（精简过的 PyQt5 安装）时静默跳过，Qt 界面回到英文，功能不受影响。
 
 ### 导入/导出主题
 
@@ -192,9 +247,12 @@ PowerShell 版本与其参数完全对应：
 - **导出**: "视图" → "主题" → "导出主题"，先从列表里选要导出哪个主题
   （内置主题同样可以导出成模板），默认文件名就是主题显示名
 
-主题文件放在 `%APPDATA%\NovelMaster\themes\` 下，一个 JSON 一个主题，内容只有
-`name` 加 5 个颜色字段。**导入前会严格校验**：不是对象、缺字段、颜色不是
-`#RGB` / `#RRGGBB` 一律拒绝并说明是哪个字段有问题；多出来的字段只警告不报错；
+主题文件放在 `%APPDATA%\NovelMaster\themes\` 下，一个 JSON 一个主题，内容是
+`name` 加最多 13 个颜色字段（可选）、再可选地带排版字段；**文件始终是自包含的**——
+即使是用"以其它主题为起点"或"一键派生"做出来的，保存时也会铺开成完整字段，
+不会留下对其它主题的引用。**导入前会严格校验**：不是对象、缺必需字段、颜色不是
+`#RGB` / `#RRGGBB`、字号 / 行距超范围一律拒绝并说明是哪个字段有问题；多出来的字段
+只警告不报错；只有一个必需色字段的老主题文件也能直接导入（其余颜色自动推导）；
 单个文件坏掉只跳过它，不会连累同目录下其它主题。
 
 ### 主题管理面板
@@ -296,7 +354,8 @@ Reader-Equb/
 
 存储内容包括：
 
-- `config.json`: 程序配置（含 `language` 界面语言、`shortcuts` 快捷键绑定）
+- `config.json`: 程序配置（含 `language` 界面语言、`shortcuts` 快捷键绑定、
+  `titlebar_follow_theme` / `typography_follow_theme` 两个开关，均默认关闭）
 - `themes/`: 自定义主题文件
 - `saves/`: 阅读进度记录
 - 日志文件
@@ -393,9 +452,13 @@ enm/
 │   └── folder.py         # FolderReader：文件夹批量阅读
 └── ui/
     ├── main_window.py    # NovelMaster 主窗口
+    ├── chapter_tree.py   # ChapterTree：章节名被截断时悬停显示全名
     ├── continue_dialog.py  # ContinueReadingDialog「继续阅读」面板
     ├── shortcut_dialog.py  # ShortcutSettingsDialog 快捷键设置面板
-    ├── theme_qss.py      # build_style_sheet()：由主题算出整份样式表（主窗口与对话框共用）
+    ├── titlebar.py       # Windows 原生标题栏上色（DWM，原生 API 失败时静默跳过）
+    ├── dialog_titlebar.py  # 应用级事件过滤器：给 Qt 自建对话框的标题栏上色
+    ├── qt_translations.py  # 装卸 Qt 自带 qt_*.qm，并补 Qt 目录里缺的标准按钮文案
+    ├── theme_qss.py      # build_style_sheet() 样式表 + build_palette() 调色板（主窗口与对话框共用）
     ├── theme_dialog.py   # ThemeEditorDialog 主题编辑器 + ThemePreviewWidget 实时预览
     └── theme_manager_dialog.py  # ThemeManagerDialog 主题管理面板（新建/编辑/复制/改名/删除/导入/导出）
 ```
@@ -514,6 +577,79 @@ html = inline_images(html, resolve)
 欢迎提交 Issue 和 Pull Request！
 
 ## 更新日志
+
+### v1.3.3
+
+- **标题栏可以跟着主题变色了**：新增 `enm/ui/titlebar.py`，用 Windows 原生
+  DWM 接口（`DwmSetWindowAttribute`，属性 34/35/36）把主题的 `titlebar` /
+  `titlebar_text` 颜色推给原生标题栏
+  - 新增"视图" → "标题栏跟随主题（Windows 11）"开关，**默认关闭**，配置键
+    `titlebar_follow_theme`；不支持的系统上菜单项自动置灰
+  - 需要 Windows 11（Build 22000+）；系统不支持自定义颜色时自动退化为
+    按主题明暗切深色 / 浅色标题栏（`DWMWA_USE_IMMERSIVE_DARK_MODE`）
+  - 关掉开关会立刻恢复系统默认标题栏（`DWMWA_COLOR_DEFAULT`）；
+    顺带把边框色对齐主题、窗口圆角设为系统默认
+  - 主题编辑器、主题管理面板、继续阅读面板、快捷键设置面板会一起用
+    同一个标题栏配色（`apply_to_widget()`）
+  - 原生调用全部包在 `try/except` 里并检查 `HRESULT`，任何失败都只是静默跳过，
+    绝不会影响启动或阅读
+- **主题从 5 个颜色扩展到 13 个**（`enm/managers/theme.py`）：必需色仍是
+  `background` / `foreground` / `accent` / `highlight` / `border`，新增 8 个可选色
+  `titlebar`、`titlebar_text`、`selection`、`disabled`、`scrollbar`、`tooltip`、
+  `sidebar`、`reader`；可选色留空时由新增的 `derive_missing()` 按必需色自动推导
+  （`shift_lightness` / `mix` / `contrast_text` / HSL 计算全部与 Qt 无关，纯数学）
+- **主题编辑器大幅加料**（`enm/ui/theme_dialog.py`）：颜色字段按
+  "基础色 / 窗口与标题栏 / 交互状态 / 阅读区"四组折叠展示；新增三种起手方式
+  （16 套预设配色、以其它主题为起点的一次性复制、只给一个主色就自动派生整套配色）；
+  新增可选的字体 / 字号 / 行距字段；预览区加上标题栏与阅读区样张；
+  字段旁的提示改用行内文字而不是弹窗
+- **排版跟随主题**：主题可以自带 `font_family` / `font_size` / `line_spacing`，
+  但要打开"视图" → "排版跟随主题"（配置键 `typography_follow_theme`，默认关闭）
+  才会覆盖"设置 → 字体设置"里的全局排版；默认关闭时主题只负责颜色
+- **主题文件保持自包含**：主题继承只是编辑器里的一次性起点，
+  保存时会把字段完整铺开写进 JSON，不会留下对其它主题的引用；
+  只有一个必需色字段的旧主题文件仍可直接导入（其余颜色自动推导）
+- **修掉深色主题下「继续阅读」列表的白色隔行**：开了隔行变色的表格，隔行底色
+  取的是 Qt 调色板里的 `AlternateBase`（系统浅色），样式表里的
+  `background-color` 管不到它，于是深色主题下隔行变成白底浅字；
+  现在样式表显式给出 `alternate-background-color`（底色向文字色混 8%，
+  明暗主题都自动得到合适的一档）
+- 表头排序方向改用文字标记：Qt 的系统排序箭头是调色板画的、样式表换不了颜色，
+  深色主题下表头会出现一块白斑；现在藏掉箭头，改在表头文字后用 `↑` / `↓`
+  表示排序方向（符号与语言无关，不占语言键）
+- **修掉深色主题下二级窗口的浅色底**：Qt 的调色板与样式表是两套通道，
+  样式表管不到的控件（下拉列表、菜单、表头、内建的滚动区）走的是调色板里
+  的系统浅色；新增 `build_palette()` 按主题算出整份 `QPalette` 并在
+  `apply_theme()` 里一并设给 `QApplication`，主题编辑器、快捷键设置、
+  继续阅读、主题管理等对话框不再出现 `#F0F0F0` 灰块
+- **修掉主题编辑器里字号 / 行距输入框的白底**（`QSpinBox` / `QDoubleSpinBox`）：
+  它们的基类是 `QAbstractSpinBox`，跟 `QLineEdit` 没有继承关系，样式表里那条
+  `QLineEdit` 规则管不到；而样式表**一条规则都没碰**某个控件时，Windows
+  原生样式会拿自己的主题去画，调色板灌成纯黑它们照样是白底（禁用时浅灰）。
+  现在 `build_style_sheet()` 里显式给出数字框的底色 / 文字色 / 边框 / 焦点态，
+  跟同面板的输入框对齐。上下按钮**故意不上色**，交给原生样式按调色板画箭头
+  （深色主题下是白的）；一旦连 `::up-button` / `::down-button` 一起上色，
+  Qt 就不再画箭头（`::up-arrow` 只能指向图片文件，本项目不放这类素材），
+  按钮会变成一个没有箭头的色块
+- 语言文件同步到 308 个键（三语一一对应），新增编辑器分组 / 起点 / 派生 /
+  排版 / 校验错误等 38 个键，以及 Qt 标准按钮的 `common.yes` / `common.no`
+- **Qt 自带对话框的标题栏与语言**：新增 `enm/ui/dialog_titlebar.py`
+  （应用级事件过滤器，给 `QFontDialog` / `QColorDialog` / `QInputDialog` /
+  `QMessageBox` 这些由 Qt 内部创建的窗口上色）与 `enm/ui/qt_translations.py`
+  （按语言装卸 Qt 自带的 `qt_*.qm`，补上 Qt 目录里缺的标准按钮文案）；
+  "字体设置"对话框改成实例化 `QFontDialog`，标题显式取语言键，
+  不再是永远的 `Select Font`
+- **章节列表悬停看全名**：侧边栏默认只有 300px 宽，长章节名一律被
+  `Qt.ElideRight` 截成「第1234章 我打造了末日安…」。新增 `enm/ui/chapter_tree.py`
+  的 `ChapterTree`（`QTreeWidget` 子类），在 `viewportEvent` 里拦下
+  `QEvent.ToolTip`，用 `QFontMetrics` 量一下这一行的文字到底画不画得下，
+  **只有真的被截断才弹提示**，短名字悬停时保持安静——Qt 自带的
+  `setToolTip()` 是每个条目无条件生效的，用它会连「第1章 开局」也一起弹，很吵
+- **侧边栏宽度可以拖、而且记得住**：章节列表与阅读区之间换成 `QSplitter`，
+  拖中间那条分隔条就能改宽度（限制在 160–720px，并保证阅读区至少留 280px），
+  松手 400ms 后写回配置键 `sidebar_width`，下次启动按上次的宽度恢复；
+  分隔条原先由系统样式画成一道灰白缝（深色主题下很扎眼），
+  现在显式上色跟随主题（`QSplitter::handle`，悬停换成强调色）
 
 ### v1.3.2
 

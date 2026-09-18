@@ -5,6 +5,7 @@
 ## 📦 打包脚本说明
 
 每个 `.bat` 脚本都有等价的 PowerShell 版本（功能与参数一致，推荐使用）。
+`.bat` 只是轻量包装，会把参数原样转发给同名的 `.ps1`，因此两者行为完全一致。
 
 | 用途 | CMD 版本 | PowerShell 版本 |
 | --- | --- | --- |
@@ -37,6 +38,8 @@
 - 简单易用，适合快速打包
 - 单文件模式，生成独立的 `.exe` 文件
 - 自动检测 Nuitka，缺失时用镜像源自动安装
+- **自动发现本机所有 Python 解释器**（py 启动器 / 注册表 / 常见安装目录 / PATH），
+  默认优先使用项目 `.venv`，其次才是 PATH 与本机已安装的 Python
 - **当前解释器没有 Nuitka 时，自动回退到本机环境中已安装 Nuitka 的解释器**
 
 ### 高级打包脚本 (`build-advanced.ps1` / `build-advanced.bat`)
@@ -44,7 +47,7 @@
 - 提供多种打包选项
 - 支持调试模式和优化级别选择
 - 更详细的配置和错误处理
-- 同样支持 Nuitka 自动回退与镜像源安装
+- 同样支持解释器自动发现、Nuitka 自动回退与镜像源安装
 
 ### 清理脚本 (`clean.ps1` / `clean.bat`)
 
@@ -75,26 +78,43 @@
 ### 常用参数
 
 ```powershell
-.\build.ps1 -UseVenv                          # 用 .venv 打包
+.\build.ps1 -Python 3.13                       # 用本机 Python 3.13 打包
+.\build.ps1 -Python 3.13.6                     # 带补丁号也支持
+.\build.ps1 -Python "C:\Python313\python.exe"  # 用完整路径指定
+.\build.ps1 -UseVenv                           # 用 .venv 打包（已是默认行为）
 .\build.ps1 -NuitkaPython "C:\Python313\python.exe"   # 指定打包解释器
-.\build.ps1 -NoFallback                       # 禁止回退到本机环境 Nuitka
-.\build.ps1 -SkipNuitkaCheck                  # 跳过 Nuitka 检测
-.\build.ps1 -Mirror tuna                      # 指定 pip 镜像源
-.\build.ps1 -DryRun -NoPause                  # 只预览打包命令
-.\build.ps1 -OpenOutput                       # 完成后打开输出目录
+.\build.ps1 -NoFallback                        # 禁止回退到本机环境 Nuitka
+.\build.ps1 -SkipNuitkaCheck                   # 跳过 Nuitka 检测与依赖自检
+.\build.ps1 -Mirror tuna                       # 指定 pip 镜像源
+.\build.ps1 -DryRun -NoPause                   # 只预览打包命令
+.\build.ps1 -OpenOutput                        # 完成后打开输出目录
 ```
 
-### 关于 Nuitka 的自动回退
+`-Python` 支持三种写法：**版本号**（`3.13` / `3.13.6`）、**命令名**（`python` / `python3` / `py`）、
+**完整路径**。不指定时按下面的顺序自动选择。
+
+### 解释器是怎么选的
 
 打包脚本按以下顺序选择解释器：
 
-1. 首选解释器（`-Python` / `-UseVenv`）已装 Nuitka → 直接使用；
-2. 否则在 `-NuitkaPython` → 项目 `.venv` → PATH 的 `python/python3/py` 中
-   寻找已装 Nuitka 的解释器，找到即**自动改用**（会提示并检查该环境依赖是否完整）；
-3. 都没有 → 用镜像源为当前解释器安装 Nuitka；
+1. **`-Python` 显式指定**（优先级最高）：按版本号 / 命令名 / 路径解析，解析不了会提示并改用自动发现；
+2. **项目 `.venv`**：存在就用它（`install.ps1` 把依赖装在这里，打包环境与开发环境一致）；
+3. **PATH 里的 `python` / `python3` / `py`**；
+4. **本机扫描到的其它 Python**（py 启动器注册表 / Windows 注册表 / 常见安装目录），按版本从新到旧。
+
+解释器找到后：
+
+1. 自带 Nuitka → 直接使用；
+2. 没有 Nuitka → 在候选解释器（`-NuitkaPython` → `.venv` → PATH → 本机扫描结果）中
+   找已装 Nuitka 的，找到即**自动改用**并提示；
+3. 都找不到 → 打印**本机解释器扫描结果**（每行含版本号与 Nuitka 状态），
+   然后用镜像源为当前解释器安装 Nuitka；
 4. `-NoFallback` 可关闭第 2 步的自动回退。
 
-> 若提示"该解释器缺少运行依赖"，先执行 `.\install.ps1 -Python <该解释器路径>` 补齐依赖，
+确定解释器后脚本还会做一次**依赖自检**（PyQt5 / ebooklib / lxml / chardet / PIL / pypdf / docx），
+缺依赖会给出补齐命令（可用 `-SkipNuitkaCheck` 跳过）。
+
+> 若提示"解释器缺少运行依赖"，先执行 `.\install.ps1 -Python <该解释器路径>` 补齐依赖，
 > 否则打包出的程序可能无法运行。
 > 首次使用若提示"在此系统上禁止运行脚本"，先执行：
 > `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
@@ -181,6 +201,23 @@ dist/
 - 版本信息和图标
 
 ## 🐛 常见问题
+
+### 0. 脚本好像没用上我本机装的那个 Python
+
+先看一眼它到底找到了哪些解释器：
+
+```powershell
+.\build.ps1 -Python 3.100 -DryRun -NoPause -NonInteractive   # 故意给个不存在的版本号
+```
+
+脚本会打印**本机解释器扫描结果**（版本号 + 是否有 Nuitka + 路径），
+再用 `-Python <版本号|命令名|路径>` 指定想要的那个，例如：
+
+```powershell
+.\build.ps1 -Python 3.13.6
+```
+
+> 注意：脚本会跳过 `Microsoft\WindowsApps\python.exe`——那是应用商店别名，不是真解释器。
 
 ### 1. Nuitka 安装失败
 

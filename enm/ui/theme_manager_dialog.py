@@ -7,6 +7,10 @@
 
 约定：对话框自己不落盘、也不改主窗口，只在 ``applied_theme`` 里留下「关闭后
 该应用哪套主题」，由主窗口统一处理。
+
+``titlebar_theme`` 为空 = 不给原生标题栏上色（对应「标题栏跟随主题」关闭）；
+预览区会按主题自带的排版画字号 / 行距，没带的就用 ``font_family`` /
+``font_size`` / ``line_spacing`` 几个参数里的当前全局设置。
 """
 
 from pathlib import Path
@@ -22,6 +26,7 @@ from ..managers.theme import DEFAULT_THEME, sanitize_theme_name
 from .theme_dialog import (ThemeEditorDialog, ThemePreviewWidget,
                            describe_theme_errors, theme_display_label)
 from .theme_qss import build_style_sheet
+from .titlebar import apply_to_widget
 
 
 def _has_code(errors, code):
@@ -32,21 +37,44 @@ def _has_code(errors, code):
 class ThemeManagerDialog(QDialog):
     """主题管理：列表、预览、新建、修改、复制、重命名、删除、导入、导出"""
 
-    def __init__(self, manager, current_theme, parent=None, ui_theme=None):
+    def __init__(self, manager, current_theme, parent=None, ui_theme=None,
+                 titlebar_theme=None, font_family=None, font_size=None,
+                 line_spacing=None):
         super().__init__(parent)
         self.manager = manager
         self.current_theme = current_theme
         #: 关闭对话框后主窗口需要应用的主题；None 表示不用动
         self.applied_theme = None
+        #: 本对话框自己的标题栏用哪套配色（showEvent 里才会真正套上去）
+        self._titlebar_theme = titlebar_theme
+        #: 新建主题时「排版」组的默认值（一般来自当前阅读设置）
+        self._typography_defaults = {
+            "font_family": font_family,
+            "font_size": font_size,
+            "line_spacing": line_spacing,
+        }
 
         if ui_theme:
             self.setStyleSheet(build_style_sheet(ui_theme))
 
         self.setWindowTitle(i18n.t("theme_manager.title"))
         self.setModal(True)
-        self.setMinimumSize(720, 480)
+        self.setMinimumSize(760, 500)
         self.setup_ui()
         self.refresh_list(select=current_theme)
+
+    def showEvent(self, event):
+        """窗口真正显示之后才给标题栏上色（此刻 winId 才拿到有效句柄）"""
+        super().showEvent(event)
+        apply_to_widget(self, self._titlebar_theme)
+
+    def open_editor(self, theme=None, name=""):
+        """统一构造主题编辑器（外壳配色 / 标题栏配色 / 排版默认值一起递进去）"""
+        return ThemeEditorDialog(
+            self.manager, theme=theme, name=name, parent=self,
+            ui_theme=self.manager.get_theme(self.current_theme),
+            titlebar_theme=self._titlebar_theme,
+            **self._typography_defaults)
 
     # ------------------------------------------------------------------ 界面
 
@@ -181,7 +209,14 @@ class ThemeManagerDialog(QDialog):
 
         name, is_builtin = info
         self.selected_label.setText(theme_display_label(self.manager, name, is_builtin))
-        self.preview.set_theme(self.manager.get_theme(name))
+        theme = self.manager.get_theme(name)
+        # 主题自带排版时预览也按它的字号 / 行距画，否则看起来会比实际差一截
+        self.preview.set_theme(
+            theme,
+            font_size=(theme.get("font_size")
+                       or self._typography_defaults.get("font_size")),
+            line_spacing=(theme.get("line_spacing")
+                          or self._typography_defaults.get("line_spacing")))
         self.apply_btn.setEnabled(True)
         self.copy_btn.setEnabled(True)
         self.export_btn.setEnabled(True)
@@ -208,8 +243,7 @@ class ThemeManagerDialog(QDialog):
 
     def create_theme(self):
         """新建主题"""
-        editor = ThemeEditorDialog(self.manager, parent=self,
-                                   ui_theme=self.manager.get_theme(self.current_theme))
+        editor = self.open_editor()
         if editor.exec_() != QDialog.Accepted:
             return
 
@@ -238,9 +272,7 @@ class ThemeManagerDialog(QDialog):
             self.warn(i18n.t("theme_manager.builtin_readonly"))
             return
 
-        editor = ThemeEditorDialog(self.manager, theme=self.manager.get_theme(name),
-                                   name=name, parent=self,
-                                   ui_theme=self.manager.get_theme(self.current_theme))
+        editor = self.open_editor(theme=self.manager.get_theme(name), name=name)
         if editor.exec_() != QDialog.Accepted:
             return
 
