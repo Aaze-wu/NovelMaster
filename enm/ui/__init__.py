@@ -3,7 +3,10 @@
 from .continue_dialog import ContinueReadingDialog
 from .main_window import NovelMaster
 from .shortcut_dialog import ShortcutSettingsDialog
-from .theme_dialog import ThemeGeneratorDialog
+from .theme_dialog import ThemeEditorDialog, ThemePreviewWidget
+from .theme_manager_dialog import ThemeManagerDialog
+from .theme_qss import build_style_sheet, color_on_accent
 
 __all__ = ["ContinueReadingDialog", "NovelMaster", "ShortcutSettingsDialog",
-           "ThemeGeneratorDialog"]
+           "ThemeEditorDialog", "ThemePreviewWidget", "ThemeManagerDialog",
+           "build_style_sheet", "color_on_accent"]

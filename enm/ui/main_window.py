@@ -1,12 +1,11 @@
 """主窗口：菜单栏、工具栏、章节树、阅读区与所有交互逻辑。"""
 
 import base64
-import json
 import time
 from pathlib import Path
 
 from PyQt5.QtCore import QEvent, Qt, QTimer
-from PyQt5.QtGui import QColor, QFont, QIcon, QImage, QKeySequence, QTextCursor
+from PyQt5.QtGui import QFont, QIcon, QImage, QKeySequence, QTextCursor
 from PyQt5.QtWidgets import (QAction, QDialog, QFileDialog, QFontDialog,
                              QHBoxLayout, QInputDialog, QLabel, QMainWindow,
                              QMessageBox, QProgressBar, QPushButton, QTextEdit,
@@ -16,7 +15,7 @@ from PyQt5.QtWidgets import (QAction, QDialog, QFileDialog, QFontDialog,
 from .. import i18n
 from ..constants import (AUTHOR_NAME, DEBUG_MODE, ICON_PATH, PROJECT_NAME,
                          VERSION)
-from ..managers import (ConfigManager, ReadingProgressManager,
+from ..managers import (ConfigManager, DEFAULT_THEME, ReadingProgressManager,
                         ThemeManager, format_timestamp, split_file_key)
 from ..readers import (SUPPORTED_EXTENSIONS, FolderReader, ReaderError,
                        build_open_file_filter, create_reader,
@@ -26,7 +25,9 @@ from ..shortcuts import (ACTION_DEFS, DEFS_BY_ID, READER, WINDOW,
                          label_of)
 from .continue_dialog import ContinueReadingDialog
 from .shortcut_dialog import ShortcutSettingsDialog
-from .theme_dialog import ThemeGeneratorDialog
+from .theme_dialog import describe_theme_errors, theme_display_label
+from .theme_manager_dialog import ThemeManagerDialog
+from .theme_qss import build_style_sheet
 from ..logger import logger
 
 # 阅读区字号范围（字体增大 / 减小用）
@@ -275,6 +276,8 @@ class NovelMaster(QMainWindow):
         self.update_window_title()
         # 提示文本里含功能名，必须在文案刷新之后再重建
         self.refresh_shortcuts()
+        # 主题菜单里的自定义主题列表（内置主题名与空列表提示都是翻译文本）
+        self.update_theme_menu()
     
     def refresh_reader_text(self):
         """按当前语言重渲染正在显示的章节（保留章内阅读位置）"""
@@ -344,21 +347,29 @@ class NovelMaster(QMainWindow):
         self.make_action("menu.theme_light",
                          lambda: self.change_theme("light"),
                          "view.theme_light")
+        self._actions["view.theme_light"].setCheckable(True)
         theme_menu.addAction(self._actions["view.theme_light"])
         
         self.make_action("menu.theme_dark",
                          lambda: self.change_theme("dark"),
                          "view.theme_dark")
+        self._actions["view.theme_dark"].setCheckable(True)
         theme_menu.addAction(self._actions["view.theme_dark"])
         
         theme_menu.addSeparator()
         
+        # 自定义主题列表（内容随 themes 目录变化，见 update_theme_menu）
+        self.custom_theme_menu = self.add_menu(theme_menu, "menu.theme_custom")
+        
+        theme_menu.addSeparator()
+        
+        theme_menu.addAction(self.make_action("menu.theme_manager",
+                                              self.open_theme_manager))
         theme_menu.addAction(self.make_action("menu.theme_import",
                                               self.import_theme))
         theme_menu.addAction(self.make_action("menu.theme_export",
                                               self.export_theme))
-        theme_menu.addAction(self.make_action("menu.theme_generator",
-                                              self.open_theme_generator))
+        self.update_theme_menu()
         
         # 字体设置
         self.make_action("menu.font_settings", self.change_font,
@@ -567,8 +578,12 @@ class NovelMaster(QMainWindow):
     
     def apply_settings(self):
         """应用设置"""
-        # 应用主题
-        theme_name = self.config_manager.get("theme", "light")
+        # 应用主题（名字已经失效时回落到默认主题，并把配置改回去）
+        theme_name = self.config_manager.get("theme", DEFAULT_THEME)
+        if not self.theme_manager.exists(theme_name):
+            self.logger.log(f"主题 {theme_name!r} 不存在，回落到 {DEFAULT_THEME}", "WARN")
+            theme_name = DEFAULT_THEME
+            self.config_manager.set("theme", theme_name)
         self.apply_theme(theme_name)
         
         # 应用字体
@@ -591,123 +606,22 @@ class NovelMaster(QMainWindow):
             self.sidebar.hide()
         # 文案（显示 / 隐藏）已随之改变，刷新按钮、工具栏动作与提示文本
         self._refresh_sidebar_text()
+        self.update_theme_menu()
         self.update_progress()
     
     def apply_theme(self, theme_name):
-        """应用主题"""
-        theme = self.theme_manager.get_theme(theme_name)
+        """应用主题。
 
-        # 强调色底上的文字色，样式表里多处复用
-        on_accent = self.color_on_accent(theme)
-
-        # 应用样式表
-        # 注意：Qt 样式表只能命中写了选择器的控件，不会把 QMainWindow 的
-        # color 继承给子控件。所以没写规则的控件（进度条上方的“阅读进度”
-        # 这个 QLabel、菜单栏、工具栏等）在深色主题下会一直是 Qt 默认的
-        # 浅底黑字，必须逐个补上规则。
-        style_sheet = f"""
-        QMainWindow {{
-            background-color: {theme['background']};
-            color: {theme['foreground']};
-        }}
-        QTextEdit {{
-            background-color: {theme['background']};
-            color: {theme['foreground']};
-            border: 1px solid {theme['border']};
-            font-size: {self.config_manager.get('font_size', 12)}px;
-            line-height: {self.config_manager.get('line_spacing', 1.5)};
-        }}
-        QTreeWidget {{
-            background-color: {theme['background']};
-            color: {theme['foreground']};
-            border: 1px solid {theme['border']};
-        }}
-        /* 标签：限定在侧栏内。样式表会沿对象树往对话框里渗，
-           而对话框自身底色不受 #sidebar 影响，全域设 QLabel 会把
-           对话框的文字刷成白字压在浅底上 */
-        #sidebar QLabel {{
-            color: {theme['foreground']};
-        }}
-        /* 菜单栏 / 菜单：Windows 样式会自己画一块浅色底，
-           所以得用规则明确指定颜色 */
-        QMenuBar {{
-            background-color: {theme['background']};
-            color: {theme['foreground']};
-        }}
-        QMenuBar::item {{
-            background: transparent;
-            color: {theme['foreground']};
-            padding: 4px 8px;
-        }}
-        QMenuBar::item:selected {{
-            background-color: {theme['accent']};
-            color: {on_accent};
-        }}
-        QMenu {{
-            background-color: {theme['background']};
-            color: {theme['foreground']};
-            border: 1px solid {theme['border']};
-        }}
-        QMenu::item {{
-            color: {theme['foreground']};
-        }}
-        QMenu::item:selected {{
-            background-color: {theme['accent']};
-            color: {on_accent};
-        }}
-        QMenu::separator {{
-            background-color: {theme['border']};
-            height: 1px;
-        }}
-        QToolBar {{
-            background-color: {theme['background']};
-            border: none;
-            spacing: 4px;
-        }}
-        QToolButton {{
-            color: {theme['foreground']};
-            background: transparent;
-            padding: 4px 6px;
-            border-radius: 3px;
-        }}
-        QToolButton:hover {{
-            background-color: {theme['accent']};
-            color: {on_accent};
-        }}
-        QToolButton:disabled {{
-            color: {theme['border']};
-        }}
-        QProgressBar {{
-            background-color: {theme['background']};
-            color: {theme['foreground']};
-            border: 1px solid {theme['border']};
-            border-radius: 4px;
-            text-align: center;
-        }}
-        QProgressBar::chunk {{
-            background-color: {theme['accent']};
-            border-radius: 3px;
-        }}
-        QPushButton {{
-            background-color: {theme['accent']};
-            color: {on_accent};
-            border: none;
-            padding: 5px 10px;
-        }}
-        QPushButton:hover {{
-            background-color: {theme['highlight']};
-        }}
+        样式表统一由 :func:`enm.ui.theme_qss.build_style_sheet` 生成（主题编辑器
+        的实时预览用的是同一份规则，所以预览看到的就是实际效果）；拿不到主题
+        时 ``get_theme()`` 会兜底成浅色，不会因为配置里存了个坏名字就打不开。
         """
-
-        self.setStyleSheet(style_sheet)
-
-    @staticmethod
-    def color_on_accent(theme):
-        """返回强调色底上应该用的文字色：浅底配深字，深底配白字"""
-        accent = QColor(theme['accent'])
-        if accent.lightness() > 150:
-            return QColor(theme['background']).name()
-        return QColor("#FFFFFF").name()
+        theme = self.theme_manager.get_theme(theme_name)
+        self.setStyleSheet(build_style_sheet(
+            theme,
+            font_size=self.config_manager.get("font_size", 12),
+            line_spacing=self.config_manager.get("line_spacing", 1.5),
+        ))
 
     def apply_font(self, font_family, font_size):
         """应用字体设置"""
@@ -1607,13 +1521,47 @@ class NovelMaster(QMainWindow):
         # 保存侧边栏状态到配置
         self.config_manager.set("sidebar_visible", self.sidebar_visible)
     
+    def current_theme_name(self):
+        """当前主题键（配置里的值；已经不存在时返回默认主题）"""
+        theme_name = self.config_manager.get("theme", DEFAULT_THEME)
+        if self.theme_manager.get_theme(theme_name, fallback=None) is None:
+            return DEFAULT_THEME
+        return theme_name
+
+    def update_theme_menu(self):
+        """刷新主题菜单：内置主题的勾选状态 + 重建自定义主题列表"""
+        current = self.current_theme_name()
+        self._actions["view.theme_light"].setChecked(current == "light")
+        self._actions["view.theme_dark"].setChecked(current == "dark")
+
+        self.custom_theme_menu.clear()
+        names = self.theme_manager.custom_theme_names()
+        if not names:
+            empty = self.custom_theme_menu.addAction(
+                i18n.t("menu.theme_custom_empty"))
+            empty.setEnabled(False)
+            return
+
+        for name in names:
+            action = QAction(theme_display_label(self.theme_manager, name, False), self)
+            action.setCheckable(True)
+            action.setChecked(name == current)
+            action.triggered.connect(
+                lambda _checked=False, target=name: self.change_theme(target))
+            self.custom_theme_menu.addAction(action)
+
     def change_theme(self, theme_name):
         """切换主题"""
+        if not self.theme_manager.exists(theme_name):
+            self.logger.log(f"主题 {theme_name!r} 不存在，改用 {DEFAULT_THEME}", "WARN")
+            theme_name = DEFAULT_THEME
+
         if DEBUG_MODE:
             self.logger.debug(f"切换主题: {theme_name}")
         
         self.config_manager.set("theme", theme_name)
         self.apply_theme(theme_name)
+        self.update_theme_menu()
         
         if DEBUG_MODE:
             self.logger.debug(f"主题切换完成: {theme_name}")
@@ -1673,69 +1621,130 @@ class NovelMaster(QMainWindow):
         # 日志由 LanguageManager.set_language 统一输出，这里不再重复记录
         self.retranslate_ui()
     
+    def _theme_choices(self):
+        """(显示名, 主题键) 列表，用于让用户挑选一个主题"""
+        return [(theme_display_label(self.theme_manager, key, is_builtin),
+                 key)
+                for key, is_builtin, _theme in self.theme_manager.entries()]
+
+    def pick_theme(self, title, label):
+        """弹出一个下拉框让用户选主题，返回主题键（取消返回 None）"""
+        choices = self._theme_choices()
+        if not choices:
+            return None
+        labels = [text for text, _key in choices]
+        index = next((i for i, (_t, key) in enumerate(choices)
+                      if key == self.current_theme_name()), 0)
+        text, ok = QInputDialog.getItem(self, title, label, labels, index, False)
+        if not ok:
+            return None
+        for display, key in choices:
+            if display == text:
+                return key
+        return None
+
     def import_theme(self):
-        """导入主题"""
+        """导入主题文件（严格校验：颜色 / 字段 / 名称都会被检查）"""
         file_path, _ = QFileDialog.getOpenFileName(
             self, i18n.t("dialog.import_theme"), "",
             i18n.t("common.theme_file_filter")
         )
-        
-        if file_path:
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    theme_data = json.load(f)
-                
-                theme_name = Path(file_path).stem
-                if self.theme_manager.save_theme(theme_name, theme_data):
-                    QMessageBox.information(self, i18n.t("common.success"),
-                                            i18n.t("msg.theme_import_success"))
-                else:
-                    QMessageBox.warning(self, i18n.t("common.error"),
-                                        i18n.t("msg.theme_import_failed"))
-                    
-            except Exception as e:
-                QMessageBox.critical(self, i18n.t("common.error"),
-                                     i18n.t("msg.theme_import_error",
-                                            error=str(e)))
-    
+        if not file_path:
+            return
+
+        ok, key, errors, warnings = self.theme_manager.import_theme_file(file_path)
+
+        # 同名主题：先问清楚再覆盖（绝不静默覆盖用户自己调好的配色）
+        if not ok and self._has_error(errors, "theme_error.name_exists"):
+            if QMessageBox.question(
+                    self, i18n.t("theme_manager.overwrite_title"),
+                    i18n.t("theme_manager.overwrite_confirm", name=key),
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No) != QMessageBox.Yes:
+                return
+            ok, key, errors, warnings = self.theme_manager.import_theme_file(
+                file_path, overwrite=True)
+
+        # 文件名撞上了系统保留名（CON、NUL…）：让用户改个名字
+        if not ok and self._has_error(errors, "theme_error.reserved_name"):
+            new_name, accepted = QInputDialog.getText(
+                self, i18n.t("theme_manager.rename_title"),
+                i18n.t("theme_manager.rename_label"),
+                text=self.theme_manager.next_available_name(key))
+            if not accepted or not new_name.strip():
+                return
+            ok, key, errors, warnings = self.theme_manager.import_theme_file(
+                file_path, name=new_name.strip())
+
+        if not ok:
+            QMessageBox.warning(self, i18n.t("common.error"),
+                                describe_theme_errors(errors))
+            return
+
+        self.update_theme_menu()
+        message = i18n.t("theme_manager.imported", name=theme_display_label(
+            self.theme_manager, key, False))
+        if warnings:
+            # 多余字段不致命，但要说清楚被忽略了什么
+            message += "\n\n" + describe_theme_errors(warnings)
+        message += "\n\n" + i18n.t("theme_manager.ask_apply")
+        if QMessageBox.question(self, i18n.t("common.success"), message,
+                                QMessageBox.Yes | QMessageBox.No,
+                                QMessageBox.Yes) == QMessageBox.Yes:
+            self.change_theme(key)
+
     def export_theme(self):
-        """导出主题"""
-        current_theme = self.config_manager.get("theme")
-        theme_data = self.theme_manager.get_theme(current_theme)
-        
+        """导出主题为 JSON 文件（可导出内置主题，方便改一份自己的配色）"""
+        theme_name = self.pick_theme(i18n.t("dialog.export_theme"),
+                                     i18n.t("theme_manager.export_label"))
+        if theme_name is None:
+            return
+
+        display = theme_display_label(self.theme_manager, theme_name,
+                                      self.theme_manager.is_builtin(theme_name))
         file_path, _ = QFileDialog.getSaveFileName(
-            self, i18n.t("dialog.export_theme"), f"{current_theme}.json",
+            self, i18n.t("dialog.export_theme"), f"{display}.json",
             i18n.t("common.theme_file_filter")
         )
-        
-        if file_path:
-            try:
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    json.dump(theme_data, f, ensure_ascii=False, indent=2)
-                QMessageBox.information(self, i18n.t("common.success"),
-                                        i18n.t("msg.theme_export_success"))
-            except Exception as e:
-                QMessageBox.critical(self, i18n.t("common.error"),
-                                     i18n.t("msg.theme_export_error",
-                                            error=str(e)))
-    
-    def open_theme_generator(self):
-        """打开主题生成器"""
-        dialog = ThemeGeneratorDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
-            theme_data = dialog.get_theme_data()
-            theme_name = theme_data["name"]
-            
-            if self.theme_manager.save_theme(theme_name, theme_data):
-                QMessageBox.information(self, i18n.t("common.success"),
-                                        i18n.t("msg.theme_create_success"))
-                # 应用新主题
-                self.config_manager.set("theme", theme_name)
-                self.apply_theme(theme_name)
-            else:
-                QMessageBox.warning(self, i18n.t("common.error"),
-                                    i18n.t("msg.theme_create_failed"))
-    
+        if not file_path:
+            return
+
+        ok, errors = self.theme_manager.export_theme_file(
+            theme_name, file_path, display_name=display)
+        if not ok:
+            QMessageBox.warning(self, i18n.t("common.error"),
+                                describe_theme_errors(errors))
+            return
+        QMessageBox.information(self, i18n.t("common.success"),
+                               i18n.t("theme_manager.exported", path=file_path))
+
+    def open_theme_manager(self):
+        """打开主题管理对话框（新建 / 编辑 / 复制 / 改名 / 删除 / 导入导出）"""
+        dialog = ThemeManagerDialog(self.theme_manager, self.current_theme_name(),
+                                    self, ui_theme=self.theme_manager.get_theme(
+                                        self.current_theme_name()))
+        dialog.exec_()
+        # 对话框只记录「之后要应用哪个主题」，配置与主窗口由这里统一更新
+        self.theme_manager.reload()
+        self.update_theme_menu()
+        if dialog.applied_theme:
+            self.change_theme(dialog.applied_theme)
+        else:
+            current = self.config_manager.get("theme", DEFAULT_THEME)
+            if not self.theme_manager.exists(current):
+                # 当前主题被删掉了 / 改了名：回落到默认主题
+                self.logger.log(f"当前主题 {current!r} 已不存在，回落到 {DEFAULT_THEME}",
+                                "WARN")
+                self.change_theme(DEFAULT_THEME)
+
+    @staticmethod
+    def _has_error(errors, code):
+        """错误列表里是否含某个语言键（形如 (code, params) 或裸字符串）"""
+        for error in errors or ():
+            if (error[0] if isinstance(error, (tuple, list)) else error) == code:
+                return True
+        return False
+
     def show_about(self):
         """显示关于对话框"""
         feature_params = {
