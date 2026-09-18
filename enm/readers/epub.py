@@ -7,7 +7,7 @@ import ebooklib
 from ebooklib import epub
 
 from ..logger import logger
-from .base import BaseReader
+from .base import BaseReader, auto_title
 from .images import (candidate_paths, guess_mime, inline_images, is_image_name)
 
 
@@ -137,11 +137,7 @@ class EpubReader(BaseReader):
                         content = self._chapter_content(doc_item)
                         title = self._extract_title_from_content(content, item.title)
                         
-                        self.chapters.append({
-                            'title': title,
-                            'content': content,
-                            'id': doc_item.get_id()
-                        })
+                        self._add_entry(title, content, id=doc_item.get_id())
                 
                 # 递归处理子项
                 if hasattr(item, 'subitems') and item.subitems:
@@ -157,11 +153,7 @@ class EpubReader(BaseReader):
                 content = self._chapter_content(item)
                 title = self._extract_title_from_content(content)
                 
-                self.chapters.append({
-                    'title': title,
-                    'content': content,
-                    'id': item.get_id()
-                })
+                self._add_entry(title, content, id=item.get_id())
     
     def _extract_chapters_fallback(self):
         """备用章节提取方法"""
@@ -170,11 +162,7 @@ class EpubReader(BaseReader):
                 content = self._chapter_content(item)
                 title = self._extract_title_from_content(content)
                 
-                self.chapters.append({
-                    'title': title,
-                    'content': content,
-                    'id': item.get_id()
-                })
+                self._add_entry(title, content, id=item.get_id())
 
     # ---------------- 内嵌图片 ----------------
 
@@ -231,7 +219,7 @@ class EpubReader(BaseReader):
             title = content[start:end].strip()
             if title and title != "未知章节":
                 return title
-        
+                
         # 方法2: 尝试提取<h1>到<h6>标签
         for tag in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
             if f'<{tag}' in content and f'</{tag}>' in content:
@@ -252,4 +240,4 @@ class EpubReader(BaseReader):
         
         # 方法4: 使用章节序号
         chapter_num = len(self.chapters) + 1
-        return f"第{chapter_num}章"
+        return auto_title("book.chapter_n", count=chapter_num)

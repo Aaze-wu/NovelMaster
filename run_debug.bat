@@ -1,3 +1,3 @@
 @echo off
-python EpubNovelMaster.py --debug
+python NovelMaster.py --debug
 pause

@@ -21,7 +21,8 @@ class ConfigManager:
             "window_size": [1200, 800],
             "window_position": [100, 100],
             "sidebar_visible": True,
-            "restore_scroll_position": True
+            "restore_scroll_position": True,
+            "shortcuts": {}
         }
         self.config = self.load_config()
     

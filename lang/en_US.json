@@ -1,44 +1,288 @@
 {
-    "file_menu": "File",
-    "open_file": "Open File",
-    "open_folder": "Open Folder",
-    "recent_files": "Recent Files",
-    "exit": "Exit",
-    "view_menu": "View",
-    "theme": "Theme",
-    "font": "Font",
-    "language": "Language",
-    "help_menu": "Help",
-    "about": "About",
-    "reading_progress": "Reading Progress",
-    "chapter_list": "Chapter List",
-    "search": "Search",
-    "settings": "Settings",
-    "light_theme": "Light Theme",
-    "dark_theme": "Dark Theme",
-    "import_theme": "Import Theme",
-    "export_theme": "Export Theme",
-    "theme_generator": "Theme Generator",
-    "font_settings": "Font Settings",
-    "chinese": "Chinese",
-    "english": "English",
-    "previous_chapter": "Previous Chapter",
-    "next_chapter": "Next Chapter",
-    "main_toolbar": "Main Toolbar",
-    "chapter_tree": "Chapter List",
-    "progress_label": "Reading Progress",
+  "lang": {
+    "name": "English",
+    "code": "en_US"
+  },
+  "app": {
+    "name": "NovelMaster"
+  },
+  "common": {
     "error": "Error",
     "warning": "Warning",
     "success": "Success",
-    "info": "Information",
-    "unsupported_format": "Unsupported file format",
-    "load_failed": "Load failed",
-    "no_supported_files": "No supported files",
+    "info": "Notice",
+    "ok": "OK",
+    "cancel": "Cancel",
+    "close": "Close",
+    "reset_default": "Reset",
+    "reset_all_default": "Reset All",
+    "unbound": "Unbound",
+    "dash": "--",
+    "list_separator": ", ",
+    "unknown": "unknown",
+    "theme_file_filter": "Theme files (*.json)",
+    "label_with_keys": "{label} ({keys})"
+  },
+  "window": {
+    "title_with_author": "{title} ({author}) - {app}"
+  },
+  "menu": {
+    "file": "File",
+    "open_file": "Open File",
+    "open_folder": "Open Folder",
+    "recent_files": "Recent Files",
+    "continue_reading": "Continue Reading...",
+    "exit": "Exit",
+    "read": "Read",
+    "previous_chapter": "Previous Chapter",
+    "next_chapter": "Next Chapter",
+    "goto_chapter": "Go to Chapter...",
+    "chapter_start": "Go to Chapter Start",
+    "chapter_end": "Go to Chapter End",
+    "settings": "Settings",
+    "theme": "Theme",
+    "theme_light": "Light Theme",
+    "theme_dark": "Dark Theme",
+    "theme_import": "Import Theme",
+    "theme_export": "Export Theme",
+    "theme_generator": "Theme Generator",
+    "font_settings": "Font Settings",
+    "font_increase": "Increase Font Size",
+    "font_decrease": "Decrease Font Size",
+    "restore_scroll": "Remember Scroll Position",
+    "shortcut_settings": "Keyboard Shortcuts",
+    "language": "Language",
+    "help": "Help",
+    "about": "About"
+  },
+  "toolbar": {
+    "main": "Main Toolbar",
+    "open_file": "Open File",
+    "continue_reading": "Continue Reading",
+    "sidebar_show": "Show Chapter List",
+    "sidebar_hide": "Hide Chapter List",
+    "previous_chapter": "Previous Chapter",
+    "next_chapter": "Next Chapter"
+  },
+  "sidebar": {
+    "chapter_list": "Chapter List",
+    "toggle_show": "Show",
+    "toggle_hide": "Hide",
+    "progress": "Reading progress: {percent}%"
+  },
+  "dialog": {
+    "open_file": "Open File",
+    "open_folder": "Choose Folder",
+    "import_theme": "Import Theme",
+    "export_theme": "Export Theme",
+    "goto_chapter": "Go to Chapter",
+    "goto_chapter_prompt": "Enter a chapter number (1 - {total}):",
+    "continue_reading": "Continue Reading - {app}",
+    "theme_generator": "Theme Generator",
+    "shortcut_settings": "Keyboard Shortcuts"
+  },
+  "filter": {
+    "supported": "Supported Files",
+    "ebooks": "E-Books",
+    "documents": "Documents",
+    "archives": "Archives",
+    "all_files": "All Files"
+  },
+  "msg": {
+    "unsupported_format": "Unsupported file format: {extension}\n\nSupported formats: {supported}",
+    "cannot_open_file": "Cannot Open File",
+    "load_file_failed": "Failed to load file: {error}",
+    "load_folder_failed": "Failed to load folder: {error}",
+    "no_supported_files": "No supported files in this folder",
+    "no_book_opened": "No book is open yet.",
+    "file_missing": "File Not Found",
+    "file_missing_detail": "{path}\n\nThe file may have been moved or deleted.",
+    "no_displayable_content": "This file has no displayable content.",
+    "no_displayable_content_folder": "Cannot read this file, or it has no displayable content.",
     "theme_import_success": "Theme imported successfully",
     "theme_import_failed": "Theme import failed",
+    "theme_import_error": "Failed to import theme: {error}",
     "theme_export_success": "Theme exported successfully",
-    "theme_export_failed": "Theme export failed",
+    "theme_export_error": "Failed to export theme: {error}",
     "theme_create_success": "Theme created successfully",
-    "theme_create_failed": "Theme creation failed",
-    "language_change_notice": "Language settings will take effect after restart"
+    "theme_create_failed": "Theme creation failed"
+  },
+  "about": {
+    "title": "About",
+    "version": "Version: {version}",
+    "author": "Author: {author}",
+    "description": "A powerful novel reader with support for many formats and plenty of customization.",
+    "features": "Features:",
+    "feature_formats": "Supports {formats} file formats",
+    "feature_folder": "Folder mode reading (continuous chapters across files)",
+    "feature_autosave": "Automatic reading progress",
+    "feature_theme": "Theme switching and customization",
+    "feature_i18n": "Multi-language support",
+    "feature_shortcuts": "Customizable keyboard shortcuts",
+    "feature_ui": "Modern user interface"
+  },
+  "shortcut": {
+    "group": {
+      "file": "File",
+      "nav": "Navigation",
+      "view": "Interface",
+      "theme": "Theme & Settings"
+    },
+    "hint": "Note: Ctrl combinations work anywhere in the window; arrow keys and page keys only work when the reading area has focus.\nClick a key field and press the new shortcut to rebind it; press Delete to clear a binding.",
+    "default": "Default: {keys}",
+    "reset_tooltip": "Restore the default shortcut for \"{label}\"",
+    "conflict_title": "Shortcut Conflict",
+    "conflict_message": "The following shortcuts are assigned more than once, please change them first:\n\n{details}",
+    "conflict_line": "- {keys}: {names}",
+    "action": {
+      "file_open": {
+        "label": "Open File",
+        "hint": "Open a book file such as epub / txt"
+      },
+      "file_open_folder": {
+        "label": "Open Folder",
+        "hint": "Read multiple books continuously in folder mode"
+      },
+      "file_continue": {
+        "label": "Continue Reading",
+        "hint": "Open the \"Continue Reading\" panel"
+      },
+      "file_quit": {
+        "label": "Exit",
+        "hint": "Save progress and quit"
+      },
+      "nav_prev_chapter": {
+        "label": "Previous Chapter",
+        "hint": "Works when the reading area has focus (page key)"
+      },
+      "nav_next_chapter": {
+        "label": "Next Chapter",
+        "hint": "Works when the reading area has focus (page key)"
+      },
+      "nav_reader_prev": {
+        "label": "Previous Chapter (Arrow)",
+        "hint": "Works when the reading area has focus (Left)"
+      },
+      "nav_reader_next": {
+        "label": "Next Chapter (Arrow)",
+        "hint": "Works when the reading area has focus (Right)"
+      },
+      "nav_goto_chapter": {
+        "label": "Go to Chapter",
+        "hint": "Jump by chapter number within the current file"
+      },
+      "nav_chapter_start": {
+        "label": "Chapter Start",
+        "hint": "Back to the beginning of this chapter"
+      },
+      "nav_chapter_end": {
+        "label": "Chapter End",
+        "hint": "Jump to the end of this chapter"
+      },
+      "view_toggle_sidebar": {
+        "label": "Show/Hide Chapter List",
+        "hint": "Collapse or expand the chapter list"
+      },
+      "view_font_inc": {
+        "label": "Increase Font Size",
+        "hint": "Reading area font size +1"
+      },
+      "view_font_dec": {
+        "label": "Decrease Font Size",
+        "hint": "Reading area font size -1"
+      },
+      "view_font_dialog": {
+        "label": "Font Settings",
+        "hint": "Open the font selection dialog"
+      },
+      "view_theme_light": {
+        "label": "Light Theme",
+        "hint": "Switch to the light theme"
+      },
+      "view_theme_dark": {
+        "label": "Dark Theme",
+        "hint": "Switch to the dark theme"
+      },
+      "view_shortcut_config": {
+        "label": "Keyboard Shortcuts",
+        "hint": "Open the keyboard shortcut settings"
+      }
+    }
+  },
+  "book": {
+    "unknown_title": "Untitled",
+    "chapter_n": "Chapter {count}",
+    "section_n": "Section {count}",
+    "page_n": "Page {count}",
+    "page_range": "Pages {start} - {end}",
+    "body": "Text",
+    "full_text": "Full Text",
+    "prologue": "Prologue",
+    "preface": "Preface",
+    "empty_chapter": "(no displayable content)"
+  },
+  "continue": {
+    "column_title": "Title",
+    "column_author": "Author",
+    "column_progress": "Progress",
+    "column_chapters": "Read",
+    "column_duration": "Time Read",
+    "column_last_read": "Last Read",
+    "column_file": "File",
+    "search_placeholder": "Search title, author or file name...",
+    "open": "Continue Reading",
+    "delete": "Delete Record",
+    "clean": "Clean Up Missing",
+    "close": "Close",
+    "progress": "{reached}/{total} ({percent}%)",
+    "progress_chapter": "Chapter {count}",
+    "chapters_count": "{count} chapters",
+    "summary_filtered": "{count} matched",
+    "summary_total": "{count} records",
+    "summary_duration": "{duration} in total",
+    "summary_missing": "{count} files missing",
+    "missing_suffix": " (file missing)",
+    "menu_open": "Continue Reading",
+    "menu_folder": "Open Containing Folder",
+    "menu_copy": "Copy Full Path",
+    "menu_delete": "Delete Record",
+    "tooltip_missing": "The file is missing or has been moved; reading cannot continue",
+    "tooltip_file_path": "Path",
+    "tooltip_title": "Title",
+    "tooltip_author": "Author",
+    "tooltip_open_count": "Times opened",
+    "tooltip_first_opened": "First opened",
+    "tooltip_last_opened": "Last opened",
+    "tooltip_total_duration": "Time read",
+    "tooltip_read_chapters": "Chapters read",
+    "tooltip_record_key": "Record key",
+    "tooltip_saved_at": "Record updated",
+    "tooltip_line": "{label}: {value}",
+    "err_no_path_title": "Cannot Open",
+    "err_no_path": "This record has no file path stored.",
+    "err_missing_title": "File Not Found",
+    "err_missing": "{path}\n\nThe file may have been moved or deleted; if you no longer need it, use \"Clean Up Missing\" to remove this record.",
+    "delete_title": "Delete Reading Record",
+    "delete_body": "Delete the reading record for \"{name}\"?\n\nOnly reading progress and statistics are removed, the book file itself is kept.",
+    "delete_fallback_name": "this record",
+    "clean_title": "Clean Up Missing",
+    "clean_none": "No missing reading records.",
+    "clean_confirm": "{count} records point to files that no longer exist. Clean them all up?",
+    "clean_done": "Removed {count} missing records.",
+    "duration_hours": "{hours} h {minutes} min",
+    "duration_minutes": "{minutes} min {seconds} s",
+    "duration_seconds": "{seconds} s"
+  },
+  "theme_editor": {
+    "title": "Theme Generator",
+    "name_label": "Theme name:",
+    "name_default": "Custom Theme",
+    "choose_background": "Choose Background",
+    "choose_foreground": "Choose Foreground",
+    "choose_accent": "Choose Accent",
+    "background_label": "Background:",
+    "foreground_label": "Foreground:",
+    "accent_label": "Accent:",
+    "preview": "Background: {background}\nForeground: {foreground}\nAccent: {accent}"
+  }
 }

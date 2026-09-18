@@ -1,44 +1,288 @@
 {
-    "file_menu": "文件",
-    "open_file": "打开文件",
-    "open_folder": "打开文件夹",
-    "recent_files": "最近文件",
-    "exit": "退出",
-    "view_menu": "视图",
-    "theme": "主题",
-    "font": "字体",
-    "language": "语言",
-    "help_menu": "帮助",
-    "about": "关于",
-    "reading_progress": "阅读进度",
-    "chapter_list": "章节列表",
-    "search": "搜索",
-    "settings": "设置",
-    "light_theme": "浅色主题",
-    "dark_theme": "深色主题",
-    "import_theme": "导入主题",
-    "export_theme": "导出主题",
-    "theme_generator": "主题生成器",
-    "font_settings": "字体设置",
-    "chinese": "简体中文",
-    "english": "英语",
-    "previous_chapter": "上一章",
-    "next_chapter": "下一章",
-    "main_toolbar": "主工具栏",
-    "chapter_tree": "章节列表",
-    "progress_label": "阅读进度",
+  "lang": {
+    "name": "简体中文",
+    "code": "zh_CN"
+  },
+  "app": {
+    "name": "NovelMaster"
+  },
+  "common": {
     "error": "错误",
     "warning": "警告",
     "success": "成功",
-    "info": "信息",
-    "unsupported_format": "不支持的文件格式",
-    "load_failed": "加载失败",
-    "no_supported_files": "没有支持的文件",
+    "info": "提示",
+    "ok": "确定",
+    "cancel": "取消",
+    "close": "关闭",
+    "reset_default": "恢复默认",
+    "reset_all_default": "全部恢复默认",
+    "unbound": "未绑定",
+    "dash": "—",
+    "list_separator": "、",
+    "unknown": "未知",
+    "theme_file_filter": "主题文件 (*.json)",
+    "label_with_keys": "{label}（{keys}）"
+  },
+  "window": {
+    "title_with_author": "{title}（{author}） - {app}"
+  },
+  "menu": {
+    "file": "文件",
+    "open_file": "打开文件",
+    "open_folder": "打开文件夹",
+    "recent_files": "最近文件",
+    "continue_reading": "继续阅读...",
+    "exit": "退出",
+    "read": "阅读",
+    "previous_chapter": "上一章",
+    "next_chapter": "下一章",
+    "goto_chapter": "转到章节...",
+    "chapter_start": "跳到章首",
+    "chapter_end": "跳到章尾",
+    "settings": "设置",
+    "theme": "主题",
+    "theme_light": "浅色主题",
+    "theme_dark": "深色主题",
+    "theme_import": "导入主题",
+    "theme_export": "导出主题",
+    "theme_generator": "主题生成器",
+    "font_settings": "字体设置",
+    "font_increase": "字体增大",
+    "font_decrease": "字体减小",
+    "restore_scroll": "记住章内阅读位置",
+    "shortcut_settings": "快捷键设置",
+    "language": "语言",
+    "help": "帮助",
+    "about": "关于"
+  },
+  "toolbar": {
+    "main": "主工具栏",
+    "open_file": "打开文件",
+    "continue_reading": "继续阅读",
+    "sidebar_show": "显示章节列表",
+    "sidebar_hide": "隐藏章节列表",
+    "previous_chapter": "上一章",
+    "next_chapter": "下一章"
+  },
+  "sidebar": {
+    "chapter_list": "章节列表",
+    "toggle_show": "显示",
+    "toggle_hide": "隐藏",
+    "progress": "阅读进度: {percent}%"
+  },
+  "dialog": {
+    "open_file": "打开文件",
+    "open_folder": "选择文件夹",
+    "import_theme": "导入主题",
+    "export_theme": "导出主题",
+    "goto_chapter": "转到章节",
+    "goto_chapter_prompt": "请输入章节序号（1 - {total}）：",
+    "continue_reading": "继续阅读 - {app}",
+    "theme_generator": "主题生成器",
+    "shortcut_settings": "快捷键设置"
+  },
+  "filter": {
+    "supported": "支持的文件",
+    "ebooks": "电子书文件",
+    "documents": "文档文件",
+    "archives": "压缩包",
+    "all_files": "所有文件"
+  },
+  "msg": {
+    "unsupported_format": "不支持的文件格式: {extension}\n\n支持的格式: {supported}",
+    "cannot_open_file": "无法打开文件",
+    "load_file_failed": "加载文件失败: {error}",
+    "load_folder_failed": "加载文件夹失败: {error}",
+    "no_supported_files": "文件夹中没有支持的文件",
+    "no_book_opened": "还没有打开任何书籍。",
+    "file_missing": "文件不存在",
+    "file_missing_detail": "{path}\n\n文件可能已被移动或删除。",
+    "no_displayable_content": "文件中没有可显示的内容。",
+    "no_displayable_content_folder": "无法读取该文件或文件中没有可显示的内容。",
     "theme_import_success": "主题导入成功",
     "theme_import_failed": "主题导入失败",
+    "theme_import_error": "导入主题失败: {error}",
     "theme_export_success": "主题导出成功",
-    "theme_export_failed": "主题导出失败",
+    "theme_export_error": "导出主题失败: {error}",
     "theme_create_success": "主题创建成功",
-    "theme_create_failed": "主题创建失败",
-    "language_change_notice": "语言设置将在下次启动时生效"
+    "theme_create_failed": "主题创建失败"
+  },
+  "about": {
+    "title": "关于",
+    "version": "版本: {version}",
+    "author": "作者: {author}",
+    "description": "一个功能强大的小说阅读器，支持多种格式和丰富的自定义选项。",
+    "features": "功能特性:",
+    "feature_formats": "支持 {formats} 文件格式",
+    "feature_folder": "支持文件夹模式阅读（可跨文件连续翻章）",
+    "feature_autosave": "自动保存阅读记录",
+    "feature_theme": "主题切换和自定义",
+    "feature_i18n": "多语言支持",
+    "feature_shortcuts": "可自定义的快捷键",
+    "feature_ui": "现代化的用户界面"
+  },
+  "shortcut": {
+    "group": {
+      "file": "文件操作",
+      "nav": "阅读导航",
+      "view": "界面控制",
+      "theme": "主题与设置"
+    },
+    "hint": "提示：Ctrl 组合键在窗口内任意位置生效；方向键、翻页键只在阅读区获得焦点时生效。\n单击按键框后按下新快捷键即可改键，按 Delete 可清空该绑定。",
+    "default": "默认: {keys}",
+    "reset_tooltip": "把「{label}」还原为默认按键",
+    "conflict_title": "按键冲突",
+    "conflict_message": "以下按键被重复使用，请先改成不同的按键：\n\n{details}",
+    "conflict_line": "• {keys}：{names}",
+    "action": {
+      "file_open": {
+        "label": "打开文件",
+        "hint": "打开 epub / txt 等书籍文件"
+      },
+      "file_open_folder": {
+        "label": "打开文件夹",
+        "hint": "以文件夹模式连续阅读多本书"
+      },
+      "file_continue": {
+        "label": "继续阅读",
+        "hint": "打开「继续阅读」面板"
+      },
+      "file_quit": {
+        "label": "退出",
+        "hint": "保存进度并关闭程序"
+      },
+      "nav_prev_chapter": {
+        "label": "上一章",
+        "hint": "阅读区聚焦时生效（翻页键）"
+      },
+      "nav_next_chapter": {
+        "label": "下一章",
+        "hint": "阅读区聚焦时生效（翻页键）"
+      },
+      "nav_reader_prev": {
+        "label": "上一章（方向键）",
+        "hint": "阅读区聚焦时生效（←）"
+      },
+      "nav_reader_next": {
+        "label": "下一章（方向键）",
+        "hint": "阅读区聚焦时生效（→）"
+      },
+      "nav_goto_chapter": {
+        "label": "转到章节",
+        "hint": "按当前文件内的章节序号跳转"
+      },
+      "nav_chapter_start": {
+        "label": "跳到章首",
+        "hint": "回到当前章节开头"
+      },
+      "nav_chapter_end": {
+        "label": "跳到章尾",
+        "hint": "跳到当前章节末尾"
+      },
+      "view_toggle_sidebar": {
+        "label": "显示/隐藏章节列表",
+        "hint": "收起或展开左侧章节列表"
+      },
+      "view_font_inc": {
+        "label": "字体增大",
+        "hint": "阅读区字号 +1"
+      },
+      "view_font_dec": {
+        "label": "字体减小",
+        "hint": "阅读区字号 -1"
+      },
+      "view_font_dialog": {
+        "label": "字体设置",
+        "hint": "打开字体选择对话框"
+      },
+      "view_theme_light": {
+        "label": "浅色主题",
+        "hint": "切换到浅色主题"
+      },
+      "view_theme_dark": {
+        "label": "深色主题",
+        "hint": "切换到深色主题"
+      },
+      "view_shortcut_config": {
+        "label": "快捷键设置",
+        "hint": "打开快捷键设置面板"
+      }
+    }
+  },
+  "book": {
+    "unknown_title": "未知书名",
+    "chapter_n": "第{count}章",
+    "section_n": "第{count}节",
+    "page_n": "第 {count} 页",
+    "page_range": "第 {start} - {end} 页",
+    "body": "正文",
+    "full_text": "全文",
+    "prologue": "序章",
+    "preface": "前言",
+    "empty_chapter": "（没有可显示的内容）"
+  },
+  "continue": {
+    "column_title": "书名",
+    "column_author": "作者",
+    "column_progress": "进度",
+    "column_chapters": "已读",
+    "column_duration": "阅读时长",
+    "column_last_read": "最后阅读",
+    "column_file": "文件",
+    "search_placeholder": "搜索书名、作者或文件名…",
+    "open": "继续阅读",
+    "delete": "删除记录",
+    "clean": "清理失效记录",
+    "close": "关闭",
+    "progress": "{reached}/{total}（{percent}%）",
+    "progress_chapter": "第 {count} 章",
+    "chapters_count": "{count} 章",
+    "summary_filtered": "筛选出 {count} 条",
+    "summary_total": "共 {count} 条记录",
+    "summary_duration": "累计阅读 {duration}",
+    "summary_missing": "其中 {count} 条文件已不存在",
+    "missing_suffix": "（文件已不存在）",
+    "menu_open": "继续阅读",
+    "menu_folder": "打开所在文件夹",
+    "menu_copy": "复制完整路径",
+    "menu_delete": "删除记录",
+    "tooltip_missing": "文件不存在或已被移动，无法继续阅读",
+    "tooltip_file_path": "文件路径",
+    "tooltip_title": "书名",
+    "tooltip_author": "作者",
+    "tooltip_open_count": "打开次数",
+    "tooltip_first_opened": "首次打开",
+    "tooltip_last_opened": "最后打开",
+    "tooltip_total_duration": "累计阅读",
+    "tooltip_read_chapters": "已读章节",
+    "tooltip_record_key": "记录键",
+    "tooltip_saved_at": "记录更新时间",
+    "tooltip_line": "{label}：{value}",
+    "err_no_path_title": "无法打开",
+    "err_no_path": "这条记录里没有文件路径信息。",
+    "err_missing_title": "文件不存在",
+    "err_missing": "{path}\n\n文件可能已被移动或删除；如果确认不再需要，可以用「清理失效记录」删除这条记录。",
+    "delete_title": "删除阅读记录",
+    "delete_body": "确定删除「{name}」的阅读记录吗？\n\n只会删除阅读进度与统计，不会删除书籍文件。",
+    "delete_fallback_name": "这条记录",
+    "clean_title": "清理失效记录",
+    "clean_none": "没有失效的阅读记录。",
+    "clean_confirm": "有 {count} 条记录指向的文件已经不存在，确定全部清理吗？",
+    "clean_done": "已清理 {count} 条失效记录。",
+    "duration_hours": "{hours} 小时 {minutes} 分",
+    "duration_minutes": "{minutes} 分 {seconds} 秒",
+    "duration_seconds": "{seconds} 秒"
+  },
+  "theme_editor": {
+    "title": "主题生成器",
+    "name_label": "主题名称:",
+    "name_default": "自定义主题",
+    "choose_background": "选择背景色",
+    "choose_foreground": "选择前景色",
+    "choose_accent": "选择强调色",
+    "background_label": "背景色:",
+    "foreground_label": "前景色:",
+    "accent_label": "强调色:",
+    "preview": "背景: {background}\n前景: {foreground}\n强调: {accent}"
+  }
 }

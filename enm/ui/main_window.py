@@ -6,25 +6,34 @@ import time
 from pathlib import Path
 
 from PyQt5.QtCore import QEvent, Qt, QTimer
-from PyQt5.QtGui import QFont, QIcon, QImage, QTextCursor
+from PyQt5.QtGui import QColor, QFont, QIcon, QImage, QKeySequence, QTextCursor
 from PyQt5.QtWidgets import (QAction, QDialog, QFileDialog, QFontDialog,
-                             QHBoxLayout, QLabel, QMainWindow, QMessageBox,
-                             QProgressBar, QPushButton, QTextEdit, QToolBar,
-                             QTreeWidget, QTreeWidgetItem, QVBoxLayout,
-                             QWidget)
+                             QHBoxLayout, QInputDialog, QLabel, QMainWindow,
+                             QMessageBox, QProgressBar, QPushButton, QTextEdit,
+                             QToolBar, QTreeWidget, QTreeWidgetItem,
+                             QVBoxLayout, QWidget)
 
+from .. import i18n
 from ..constants import (AUTHOR_NAME, DEBUG_MODE, ICON_PATH, PROJECT_NAME,
                          VERSION)
-from ..managers import (ConfigManager, LanguageManager, ReadingProgressManager,
+from ..managers import (ConfigManager, ReadingProgressManager,
                         ThemeManager, format_timestamp, split_file_key)
 from ..readers import (SUPPORTED_EXTENSIONS, FolderReader, ReaderError,
                        build_open_file_filter, create_reader,
                        format_chapter_html, supported_extensions_text)
+from ..shortcuts import (ACTION_DEFS, DEFS_BY_ID, READER, WINDOW,
+                         ShortcutManager, event_key_sequence, key_sequence,
+                         label_of)
 from .continue_dialog import ContinueReadingDialog
+from .shortcut_dialog import ShortcutSettingsDialog
 from .theme_dialog import ThemeGeneratorDialog
 from ..logger import logger
 
-class EpubNovelMaster(QMainWindow):
+# 阅读区字号范围（字体增大 / 减小用）
+FONT_SIZE_MIN = 8
+FONT_SIZE_MAX = 48
+
+class NovelMaster(QMainWindow):
     def __init__(self):
         super().__init__()
         
@@ -33,7 +42,29 @@ class EpubNovelMaster(QMainWindow):
         self.config_manager = ConfigManager()
         self.progress_manager = ReadingProgressManager()
         self.theme_manager = ThemeManager()
-        self.language_manager = LanguageManager()
+        
+        # 界面语言（i18n 是全局单例，阅读器 / 对话框共用同一份翻译表）：
+        # 必须在搭建界面之前套用，否则菜单等文案会是默认语言
+        i18n.set_language(self.config_manager.get("language", i18n.DEFAULT_LANG))
+        # 随语言刷新的文本（部件, 语言键, setter）
+        self._text_bindings = []
+        # 快捷键注册表（读取 config.json 里的自定义绑定）
+        self.shortcut_manager = ShortcutManager(self.config_manager)
+        # 动作 id -> QAction（窗口级与阅读区级都登记在这里）
+        self._actions = {}
+        # 普通按钮的提示（随快捷键变化刷新）
+        self._hint_widgets = []
+        # 阅读区按键 -> 处理函数
+        self._reader_handlers = {
+            "nav.prev_chapter": self.previous_chapter,
+            "nav.next_chapter": self.next_chapter,
+            "nav.reader_prev": self.previous_chapter,
+            "nav.reader_next": self.next_chapter,
+        }
+        # 按生效范围缓存的绑定快照，供阅读区按键过滤使用
+        self._window_bindings = {}
+        self._reader_bindings = {}
+        self._snapshot_bindings()
         
         # 当前阅读器
         self.current_reader = None
@@ -66,7 +97,7 @@ class EpubNovelMaster(QMainWindow):
             self.sidebar.show()
             self.toggle_sidebar_btn.show()
         
-        self.logger.log("EpubNovelMaster 启动成功")
+        self.logger.log(f"{PROJECT_NAME} 启动成功")
     
     def set_window_icon(self):
         """设置窗口图标"""
@@ -84,7 +115,10 @@ class EpubNovelMaster(QMainWindow):
     
     def setup_ui(self):
         """设置用户界面"""
-        self.setWindowTitle(f"{PROJECT_NAME} - {VERSION}")
+        # 章节列表默认显示状态（侧边栏文案会依赖它，必须先初始化）
+        self.sidebar_visible = True
+        
+        self.update_window_title()
         self.setGeometry(100, 100, 1200, 800)
         
         # 创建中央部件
@@ -96,15 +130,20 @@ class EpubNovelMaster(QMainWindow):
         
         # 左侧边栏（章节列表）
         self.sidebar = QWidget()
+        # 主题里用 #sidebar QLabel 限定标签配色，避免样式表渗到对话框
+        self.sidebar.setObjectName("sidebar")
         self.sidebar.setMaximumWidth(300)
         sidebar_layout = QVBoxLayout(self.sidebar)
         
         # 章节列表标题栏
         sidebar_header_layout = QHBoxLayout()
-        self.chapter_tree_label = QLabel("章节列表")
-        self.toggle_sidebar_btn = QPushButton("隐藏")
+        self.chapter_tree_label = self.bind_text(QLabel(self),
+                                                  "sidebar.chapter_list")
+        self.toggle_sidebar_btn = QPushButton()
         self.toggle_sidebar_btn.setMaximumWidth(60)
         self.toggle_sidebar_btn.clicked.connect(self.toggle_sidebar)
+        self.bind_text(self.toggle_sidebar_btn, self._sidebar_button_key)
+        self.bind_hint(self.toggle_sidebar_btn, "view.toggle_sidebar")
         
         sidebar_header_layout.addWidget(self.chapter_tree_label)
         sidebar_header_layout.addStretch()
@@ -117,7 +156,7 @@ class EpubNovelMaster(QMainWindow):
         sidebar_layout.addWidget(self.chapter_tree)
         
         # 阅读进度
-        self.progress_label = QLabel("阅读进度: 0%")
+        self.progress_label = QLabel()
         self.progress_bar = QProgressBar()
         sidebar_layout.addWidget(self.progress_label)
         sidebar_layout.addWidget(self.progress_bar)
@@ -135,10 +174,14 @@ class EpubNovelMaster(QMainWindow):
         
         # 控制按钮
         control_layout = QHBoxLayout()
-        self.prev_btn = QPushButton("上一章")
-        self.next_btn = QPushButton("下一章")
+        self.prev_btn = QPushButton()
+        self.next_btn = QPushButton()
+        self.bind_text(self.prev_btn, "menu.previous_chapter")
+        self.bind_text(self.next_btn, "menu.next_chapter")
         self.prev_btn.clicked.connect(self.previous_chapter)
         self.next_btn.clicked.connect(self.next_chapter)
+        self.bind_hint(self.prev_btn, "nav.prev_chapter")
+        self.bind_hint(self.next_btn, "nav.next_chapter")
         
         control_layout.addWidget(self.prev_btn)
         control_layout.addStretch()
@@ -147,133 +190,380 @@ class EpubNovelMaster(QMainWindow):
         reader_layout.addLayout(control_layout)
         main_layout.addWidget(self.reader_widget)
         
-        # 章节列表默认显示状态
-        self.sidebar_visible = True
-        
         # 创建菜单栏
         self.create_menus()
         
         # 创建工具栏
         self.create_toolbar()
+        
+        # 阅读区按键过滤：方向键 / 翻页键翻章，Ctrl 组合键优先于 QTextEdit 自带行为
+        self.reader_display.installEventFilter(self)
+        self.reader_display.viewport().installEventFilter(self)
+    
+    # ---------------- 多语言 ----------------
+    
+    def bind_text(self, widget, key, setter="setText"):
+        """登记一个随语言切换刷新的文本
+        
+        ``key`` 可以是语言键，也可以是返回语言键的函数（用于「显示 / 隐藏」
+        这类会随状态变化的文案）。返回 widget，便于链式构造。
+        """
+        binding = (widget, key, setter)
+        self._text_bindings.append(binding)
+        self._apply_text_binding(binding)
+        return widget
+    
+    def _resolve_text(self, key):
+        """语言键 → 当前语言文本（key 允许是函数）"""
+        if callable(key):
+            key = key()
+        return i18n.t(key)
+    
+    def _apply_text_binding(self, binding):
+        widget, key, setter = binding
+        getattr(widget, setter)(self._resolve_text(key))
+    
+    def _sidebar_button_key(self):
+        """侧边栏按钮文案（显示 / 隐藏）"""
+        return ("sidebar.toggle_hide" if self.sidebar_visible
+                else "sidebar.toggle_show")
+    
+    def _sidebar_action_key(self):
+        """侧边栏工具栏动作文案（显示章节列表 / 隐藏章节列表）"""
+        return ("toolbar.sidebar_hide" if self.sidebar_visible
+                else "toolbar.sidebar_show")
+    
+    def _refresh_sidebar_text(self):
+        """侧边栏文案随显示状态刷新（并把新文案写回快捷键提示）"""
+        for binding in self._text_bindings:
+            if binding[1] in (self._sidebar_button_key, self._sidebar_action_key):
+                self._apply_text_binding(binding)
+        self.update_action_hint("view.toggle_sidebar")
+    
+    def make_action(self, key, slot=None, action_id=None, scope=WINDOW):
+        """创建随语言切换自动更新文案的动作（可选同时登记快捷键）"""
+        action = QAction(self)
+        self.bind_text(action, key)
+        if slot is not None:
+            action.triggered.connect(slot)
+        if action_id:
+            self.register_action(action_id, action, scope)
+        return action
+    
+    def add_menu(self, parent, key):
+        """添加随语言切换自动更新标题的子菜单"""
+        menu = parent.addMenu("")
+        self.bind_text(menu, key, "setTitle")
+        return menu
+    
+    def retranslate_ui(self):
+        """按当前语言刷新整个界面（切换语言后调用，无需重启）"""
+        for binding in self._text_bindings:
+            self._apply_text_binding(binding)
+        
+        # 语言菜单的勾选状态
+        for code, action in getattr(self, "language_actions", {}).items():
+            action.setChecked(code == i18n.current_language())
+        
+        # 自动编号的章节标题（「第 N 章」等）就地重生成
+        reader = self.current_reader
+        if reader is not None and reader.retranslate_titles():
+            self.update_chapter_list()
+            self.refresh_reader_text()
+        
+        self.update_progress()
+        self.update_window_title()
+        # 提示文本里含功能名，必须在文案刷新之后再重建
+        self.refresh_shortcuts()
+    
+    def refresh_reader_text(self):
+        """按当前语言重渲染正在显示的章节（保留章内阅读位置）"""
+        if self.current_reader is None:
+            return
+        self._pending_scroll_percent = self.current_scroll_percent()
+        self.display_content()
     
     def create_menus(self):
         """创建菜单栏"""
         menubar = self.menuBar()
         
         # 文件菜单
-        file_menu = menubar.addMenu("文件")
+        file_menu = self.add_menu(menubar, "menu.file")
         
-        open_file_action = QAction("打开文件", self)
-        open_file_action.triggered.connect(self.open_file)
-        file_menu.addAction(open_file_action)
+        self.make_action("menu.open_file", self.open_file, "file.open")
+        file_menu.addAction(self._actions["file.open"])
         
-        open_folder_action = QAction("打开文件夹", self)
-        open_folder_action.triggered.connect(self.open_folder)
-        file_menu.addAction(open_folder_action)
+        self.make_action("menu.open_folder", self.open_folder, "file.open_folder")
+        file_menu.addAction(self._actions["file.open_folder"])
         
         file_menu.addSeparator()
         
         # 最近文件
-        self.recent_menu = file_menu.addMenu("最近文件")
+        self.recent_menu = self.add_menu(file_menu, "menu.recent_files")
         self.update_recent_files_menu()
         
-        continue_action = QAction("继续阅读...", self)
-        continue_action.triggered.connect(self.show_continue_reading)
-        file_menu.addAction(continue_action)
+        self.make_action("menu.continue_reading", self.show_continue_reading,
+                         "file.continue")
+        file_menu.addAction(self._actions["file.continue"])
         
         file_menu.addSeparator()
         
-        exit_action = QAction("退出", self)
-        exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
+        self.make_action("menu.exit", self.close, "file.quit")
+        file_menu.addAction(self._actions["file.quit"])
         
-        # 视图菜单
-        view_menu = menubar.addMenu("视图")
+        # 阅读菜单（翻章 / 跳章）
+        read_menu = self.add_menu(menubar, "menu.read")
         
-        theme_menu = view_menu.addMenu("主题")
+        self.make_action("menu.previous_chapter", self.previous_chapter,
+                         "nav.prev_chapter", READER)
+        read_menu.addAction(self._actions["nav.prev_chapter"])
         
-        light_theme_action = QAction("浅色主题", self)
-        light_theme_action.triggered.connect(lambda: self.change_theme("light"))
-        theme_menu.addAction(light_theme_action)
+        self.make_action("menu.next_chapter", self.next_chapter,
+                         "nav.next_chapter", READER)
+        read_menu.addAction(self._actions["nav.next_chapter"])
         
-        dark_theme_action = QAction("深色主题", self)
-        dark_theme_action.triggered.connect(lambda: self.change_theme("dark"))
-        theme_menu.addAction(dark_theme_action)
+        read_menu.addSeparator()
+        
+        self.make_action("menu.goto_chapter", self.goto_chapter,
+                         "nav.goto_chapter")
+        read_menu.addAction(self._actions["nav.goto_chapter"])
+        
+        self.make_action("menu.chapter_start", self.scroll_to_chapter_start,
+                         "nav.chapter_start")
+        read_menu.addAction(self._actions["nav.chapter_start"])
+        
+        self.make_action("menu.chapter_end", self.scroll_to_chapter_end,
+                         "nav.chapter_end")
+        read_menu.addAction(self._actions["nav.chapter_end"])
+        
+        # 设置菜单
+        view_menu = self.add_menu(menubar, "menu.settings")
+        
+        theme_menu = self.add_menu(view_menu, "menu.theme")
+        
+        self.make_action("menu.theme_light",
+                         lambda: self.change_theme("light"),
+                         "view.theme_light")
+        theme_menu.addAction(self._actions["view.theme_light"])
+        
+        self.make_action("menu.theme_dark",
+                         lambda: self.change_theme("dark"),
+                         "view.theme_dark")
+        theme_menu.addAction(self._actions["view.theme_dark"])
         
         theme_menu.addSeparator()
         
-        import_theme_action = QAction("导入主题", self)
-        import_theme_action.triggered.connect(self.import_theme)
-        theme_menu.addAction(import_theme_action)
-        
-        export_theme_action = QAction("导出主题", self)
-        export_theme_action.triggered.connect(self.export_theme)
-        theme_menu.addAction(export_theme_action)
-        
-        theme_generator_action = QAction("主题生成器", self)
-        theme_generator_action.triggered.connect(self.open_theme_generator)
-        theme_menu.addAction(theme_generator_action)
+        theme_menu.addAction(self.make_action("menu.theme_import",
+                                              self.import_theme))
+        theme_menu.addAction(self.make_action("menu.theme_export",
+                                              self.export_theme))
+        theme_menu.addAction(self.make_action("menu.theme_generator",
+                                              self.open_theme_generator))
         
         # 字体设置
-        font_action = QAction("字体设置", self)
-        font_action.triggered.connect(self.change_font)
-        view_menu.addAction(font_action)
+        self.make_action("menu.font_settings", self.change_font,
+                         "view.font_dialog")
+        view_menu.addAction(self._actions["view.font_dialog"])
+        
+        self.make_action("menu.font_increase", self.increase_font_size,
+                         "view.font_inc")
+        view_menu.addAction(self._actions["view.font_inc"])
+        
+        self.make_action("menu.font_decrease", self.decrease_font_size,
+                         "view.font_dec")
+        view_menu.addAction(self._actions["view.font_dec"])
         
         # 记住章内阅读位置
-        self.restore_scroll_action = QAction("记住章内阅读位置", self)
+        self.restore_scroll_action = self.make_action(
+            "menu.restore_scroll", self.toggle_restore_scroll)
         self.restore_scroll_action.setCheckable(True)
         self.restore_scroll_action.setChecked(
             self.config_manager.get("restore_scroll_position", True))
-        self.restore_scroll_action.toggled.connect(self.toggle_restore_scroll)
         view_menu.addAction(self.restore_scroll_action)
         
-        # 语言设置
-        language_menu = view_menu.addMenu("语言")
+        # 快捷键设置
+        self.make_action("menu.shortcut_settings", self.open_shortcut_dialog,
+                         "view.shortcut_config")
+        view_menu.addAction(self._actions["view.shortcut_config"])
         
-        chinese_action = QAction("简体中文", self)
-        chinese_action.triggered.connect(lambda: self.change_language("zh_CN"))
-        language_menu.addAction(chinese_action)
-        
-        english_action = QAction("English", self)
-        english_action.triggered.connect(lambda: self.change_language("en_US"))
-        language_menu.addAction(english_action)
+        # 语言设置（选项来自 i18n.available_languages，新增语言无需改这里）
+        self.language_menu = self.add_menu(view_menu, "menu.language")
+        self.language_actions = {}
+        for code in i18n.available_languages():
+            action = QAction(i18n.language_name(code), self)
+            action.setCheckable(True)
+            action.setChecked(code == i18n.current_language())
+            action.triggered.connect(
+                lambda _checked=False, target=code: self.change_language(target))
+            self.language_menu.addAction(action)
+            self.language_actions[code] = action
         
         # 帮助菜单
-        help_menu = menubar.addMenu("帮助")
-        
-        about_action = QAction("关于", self)
-        about_action.triggered.connect(self.show_about)
-        help_menu.addAction(about_action)
+        help_menu = self.add_menu(menubar, "menu.help")
+        help_menu.addAction(self.make_action("menu.about", self.show_about))
     
     def create_toolbar(self):
         """创建工具栏"""
-        toolbar = QToolBar("主工具栏")
+        toolbar = QToolBar()
+        self.bind_text(toolbar, "toolbar.main", "setWindowTitle")
         self.addToolBar(toolbar)
         
-        open_file_action = QAction("打开文件", self)
-        open_file_action.triggered.connect(self.open_file)
-        toolbar.addAction(open_file_action)
+        open_action = self.make_action("toolbar.open_file", self.open_file)
+        self.bind_hint(open_action, "file.open")
+        toolbar.addAction(open_action)
         
-        continue_action = QAction("继续阅读", self)
-        continue_action.triggered.connect(self.show_continue_reading)
+        continue_action = self.make_action("toolbar.continue_reading",
+                                           self.show_continue_reading)
+        self.bind_hint(continue_action, "file.continue")
         toolbar.addAction(continue_action)
         
         toolbar.addSeparator()
         
         # 章节列表显示/隐藏按钮
-        self.toggle_sidebar_action = QAction("隐藏章节列表", self)
-        self.toggle_sidebar_action.triggered.connect(self.toggle_sidebar)
+        self.toggle_sidebar_action = self.make_action(
+            self._sidebar_action_key, self.toggle_sidebar, "view.toggle_sidebar")
         toolbar.addAction(self.toggle_sidebar_action)
         
         toolbar.addSeparator()
         
-        prev_action = QAction("上一章", self)
-        prev_action.triggered.connect(self.previous_chapter)
+        prev_action = self.make_action("toolbar.previous_chapter",
+                                       self.previous_chapter)
+        self.bind_hint(prev_action, "nav.prev_chapter")
         toolbar.addAction(prev_action)
         
-        next_action = QAction("下一章", self)
-        next_action.triggered.connect(self.next_chapter)
+        next_action = self.make_action("toolbar.next_chapter",
+                                       self.next_chapter)
+        self.bind_hint(next_action, "nav.next_chapter")
         toolbar.addAction(next_action)
+    
+    # ---------------- 快捷键 ----------------
+    
+    def register_action(self, action_id, action, scope=WINDOW):
+        """登记动作并套用当前绑定
+        
+        窗口级动作（``WINDOW``）用 ``Qt.WindowShortcut``，窗口内任意位置都生效；
+        阅读区级动作（``READER``）挂在阅读区上，只在阅读区获得焦点时生效
+        （同时会出现在阅读区的右键菜单里）。
+        """
+        if action_id not in DEFS_BY_ID:
+            return action
+        
+        if scope == READER:
+            action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+            self.reader_display.addAction(action)
+        else:
+            action.setShortcutContext(Qt.WindowShortcut)
+        
+        self._actions[action_id] = action
+        self.apply_action_shortcut(action_id)
+        return action
+    
+    def apply_action_shortcut(self, action_id):
+        """把注册表里的按键套用到动作上，并刷新提示文本"""
+        action = self._actions.get(action_id)
+        if action is None:
+            return
+        action.setShortcut(key_sequence(self.shortcut_manager.get(action_id)))
+        self.update_action_hint(action_id)
+    
+    def update_action_hint(self, action_id):
+        """把快捷键写进动作的提示文本
+        
+        用动作「当前」的文本拼提示，兼容「显示/隐藏章节列表」这类会变文案的动作。
+        """
+        action = self._actions.get(action_id)
+        if action is None:
+            return
+        text = i18n.t("common.label_with_keys",
+                      default="{label}（{keys}）",
+                      label=action.text(),
+                      keys=self.shortcut_manager.display(action_id))
+        action.setToolTip(text)
+        action.setStatusTip(text)
+    
+    def bind_hint(self, widget, action_id):
+        """让普通按钮 / 工具栏动作的提示跟着快捷键变化"""
+        self._hint_widgets.append((widget, action_id))
+        widget.setToolTip(self.hint_text(action_id))
+        return widget
+    
+    def hint_text(self, action_id):
+        """「功能名（快捷键）」形式的提示文本（功能名跟随语言）"""
+        label = label_of(action_id)
+        if not label:
+            definition = DEFS_BY_ID.get(action_id)
+            label = definition.label if definition else ""
+        return i18n.t("common.label_with_keys",
+                      default="{label}（{keys}）",
+                      label=label,
+                      keys=self.shortcut_manager.display(action_id))
+    
+    def _refresh_widget_hints(self):
+        """刷新普通按钮 / 工具栏动作的提示文本"""
+        for widget, action_id in self._hint_widgets:
+            widget.setToolTip(self.hint_text(action_id))
+    
+    def _snapshot_bindings(self):
+        """按生效范围缓存绑定快照，供阅读区按键过滤使用"""
+        self._window_bindings = {}
+        self._reader_bindings = {}
+        for definition in ACTION_DEFS:
+            text = self.shortcut_manager.get(definition.action_id)
+            if not text:
+                continue
+            target = (self._reader_bindings if definition.scope == READER
+                      else self._window_bindings)
+            target[definition.action_id] = key_sequence(text)
+    
+    def refresh_shortcuts(self):
+        """改键后重新套用全部快捷键"""
+        for action_id in list(self._actions):
+            self.apply_action_shortcut(action_id)
+        self._snapshot_bindings()
+        self._refresh_widget_hints()
+    
+    def open_shortcut_dialog(self):
+        """打开快捷键设置面板"""
+        dialog = ShortcutSettingsDialog(self.shortcut_manager, self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        self.refresh_shortcuts()
+        self.logger.log("快捷键设置已更新")
+    
+    def eventFilter(self, obj, event):
+        """阅读区按键过滤
+        
+        * ``ShortcutOverride``：把 Ctrl+Home / Ctrl+End 这类按键放行给窗口级快捷键，
+          否则会被 ``QTextEdit`` 自带的「文档首 / 文档尾」吃掉；
+        * ``KeyPress``：派发只在阅读区生效的按键（方向键、翻页键）。
+        """
+        display = getattr(self, "reader_display", None)
+        if display is None or obj not in (display, display.viewport()):
+            return super().eventFilter(obj, event)
+        
+        if event.type() == QEvent.ShortcutOverride:
+            sequence = event_key_sequence(event)
+            for binding in self._window_bindings.values():
+                if sequence == binding:
+                    event.ignore()
+                    return True
+            return super().eventFilter(obj, event)
+        
+        if event.type() == QEvent.KeyPress:
+            sequence = event_key_sequence(event)
+            for action_id, binding in self._reader_bindings.items():
+                if sequence != binding:
+                    continue
+                if event.isAutoRepeat():
+                    # 长按不连续翻章，避免一不小心翻掉几十章
+                    return True
+                handler = self._reader_handlers.get(action_id)
+                if handler is not None:
+                    handler()
+                return True
+            return super().eventFilter(obj, event)
+        
+        return super().eventFilter(obj, event)
     
     def apply_settings(self):
         """应用设置"""
@@ -293,22 +583,28 @@ class EpubNovelMaster(QMainWindow):
         self.move(*window_position)
         
         # 应用侧边栏状态
-        sidebar_visible = self.config_manager.get("sidebar_visible", True)
-        self.sidebar_visible = sidebar_visible
-        if not sidebar_visible:
-            self.sidebar.hide()
-            self.toggle_sidebar_btn.setText("显示")
-            self.toggle_sidebar_action.setText("显示章节列表")
-        else:
+        self.sidebar_visible = self.config_manager.get("sidebar_visible", True)
+        if self.sidebar_visible:
             self.sidebar.show()
-            self.toggle_sidebar_btn.setText("隐藏")
-            self.toggle_sidebar_action.setText("隐藏章节列表")
+            self.toggle_sidebar_btn.show()
+        else:
+            self.sidebar.hide()
+        # 文案（显示 / 隐藏）已随之改变，刷新按钮、工具栏动作与提示文本
+        self._refresh_sidebar_text()
+        self.update_progress()
     
     def apply_theme(self, theme_name):
         """应用主题"""
         theme = self.theme_manager.get_theme(theme_name)
-        
+
+        # 强调色底上的文字色，样式表里多处复用
+        on_accent = self.color_on_accent(theme)
+
         # 应用样式表
+        # 注意：Qt 样式表只能命中写了选择器的控件，不会把 QMainWindow 的
+        # color 继承给子控件。所以没写规则的控件（进度条上方的“阅读进度”
+        # 这个 QLabel、菜单栏、工具栏等）在深色主题下会一直是 Qt 默认的
+        # 浅底黑字，必须逐个补上规则。
         style_sheet = f"""
         QMainWindow {{
             background-color: {theme['background']};
@@ -326,9 +622,75 @@ class EpubNovelMaster(QMainWindow):
             color: {theme['foreground']};
             border: 1px solid {theme['border']};
         }}
+        /* 标签：限定在侧栏内。样式表会沿对象树往对话框里渗，
+           而对话框自身底色不受 #sidebar 影响，全域设 QLabel 会把
+           对话框的文字刷成白字压在浅底上 */
+        #sidebar QLabel {{
+            color: {theme['foreground']};
+        }}
+        /* 菜单栏 / 菜单：Windows 样式会自己画一块浅色底，
+           所以得用规则明确指定颜色 */
+        QMenuBar {{
+            background-color: {theme['background']};
+            color: {theme['foreground']};
+        }}
+        QMenuBar::item {{
+            background: transparent;
+            color: {theme['foreground']};
+            padding: 4px 8px;
+        }}
+        QMenuBar::item:selected {{
+            background-color: {theme['accent']};
+            color: {on_accent};
+        }}
+        QMenu {{
+            background-color: {theme['background']};
+            color: {theme['foreground']};
+            border: 1px solid {theme['border']};
+        }}
+        QMenu::item {{
+            color: {theme['foreground']};
+        }}
+        QMenu::item:selected {{
+            background-color: {theme['accent']};
+            color: {on_accent};
+        }}
+        QMenu::separator {{
+            background-color: {theme['border']};
+            height: 1px;
+        }}
+        QToolBar {{
+            background-color: {theme['background']};
+            border: none;
+            spacing: 4px;
+        }}
+        QToolButton {{
+            color: {theme['foreground']};
+            background: transparent;
+            padding: 4px 6px;
+            border-radius: 3px;
+        }}
+        QToolButton:hover {{
+            background-color: {theme['accent']};
+            color: {on_accent};
+        }}
+        QToolButton:disabled {{
+            color: {theme['border']};
+        }}
+        QProgressBar {{
+            background-color: {theme['background']};
+            color: {theme['foreground']};
+            border: 1px solid {theme['border']};
+            border-radius: 4px;
+            text-align: center;
+        }}
+        QProgressBar::chunk {{
+            background-color: {theme['accent']};
+            border-radius: 3px;
+        }}
         QPushButton {{
             background-color: {theme['accent']};
-            color: white;
+            color: {on_accent};
             border: none;
             padding: 5px 10px;
         }}
@@ -336,9 +698,17 @@ class EpubNovelMaster(QMainWindow):
             background-color: {theme['highlight']};
         }}
         """
-        
+
         self.setStyleSheet(style_sheet)
-    
+
+    @staticmethod
+    def color_on_accent(theme):
+        """返回强调色底上应该用的文字色：浅底配深字，深底配白字"""
+        accent = QColor(theme['accent'])
+        if accent.lightness() > 150:
+            return QColor(theme['background']).name()
+        return QColor("#FFFFFF").name()
+
     def apply_font(self, font_family, font_size):
         """应用字体设置"""
         font = QFont(font_family, font_size)
@@ -353,7 +723,7 @@ class EpubNovelMaster(QMainWindow):
     def open_file(self):
         """打开文件"""
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "打开文件", "", build_open_file_filter()
+            self, i18n.t("dialog.open_file"), "", build_open_file_filter()
         )
         
         if file_path:
@@ -361,7 +731,8 @@ class EpubNovelMaster(QMainWindow):
     
     def open_folder(self):
         """打开文件夹"""
-        folder_path = QFileDialog.getExistingDirectory(self, "选择文件夹")
+        folder_path = QFileDialog.getExistingDirectory(
+            self, i18n.t("dialog.open_folder"))
         
         if folder_path:
             self.load_folder(folder_path)
@@ -376,9 +747,10 @@ class EpubNovelMaster(QMainWindow):
             
             if file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
                 QMessageBox.warning(
-                    self, "错误",
-                    f"不支持的文件格式: {file_path.suffix or '未知'}\n\n"
-                    f"支持的格式: {supported_extensions_text()}"
+                    self, i18n.t("common.error"),
+                    i18n.t("msg.unsupported_format",
+                           extension=file_path.suffix or i18n.t("common.unknown"),
+                           supported=supported_extensions_text())
                 )
                 if DEBUG_MODE:
                     self.logger.debug(f"不支持的文件格式: {file_path.suffix}")
@@ -388,7 +760,8 @@ class EpubNovelMaster(QMainWindow):
             try:
                 new_reader = create_reader(str(file_path))
             except ReaderError as e:
-                QMessageBox.warning(self, "无法打开文件", f"{file_path.name}\n\n{e}")
+                QMessageBox.warning(self, i18n.t("msg.cannot_open_file"),
+                                    f"{file_path.name}\n\n{e}")
                 self.logger.log(f"无法打开文件: {file_path} - {e}", "ERROR")
                 return
             
@@ -422,7 +795,8 @@ class EpubNovelMaster(QMainWindow):
                 self.logger.debug(f"文件加载完成，当前章节: {self.current_reader.current_chapter if self.current_reader else 'N/A'}")
             
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"加载文件失败: {str(e)}")
+            QMessageBox.critical(self, i18n.t("common.error"),
+                                 i18n.t("msg.load_file_failed", error=str(e)))
             self.logger.log(f"加载文件失败: {e}", "ERROR")
             if DEBUG_MODE:
                 self.logger.debug(f"加载文件异常详情: {e}", exc_info=True)
@@ -433,7 +807,8 @@ class EpubNovelMaster(QMainWindow):
             new_reader = FolderReader(folder_path)
             
             if new_reader.get_file_count() == 0:
-                QMessageBox.information(self, "提示", "文件夹中没有支持的文件")
+                QMessageBox.information(self, i18n.t("common.info"),
+                                        i18n.t("msg.no_supported_files"))
                 new_reader.close()
                 return
             
@@ -459,7 +834,8 @@ class EpubNovelMaster(QMainWindow):
             self.logger.log(f"成功加载文件夹: {folder_path}")
             
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"加载文件夹失败: {str(e)}")
+            QMessageBox.critical(self, i18n.t("common.error"),
+                                 i18n.t("msg.load_folder_failed", error=str(e)))
             self.logger.log(f"加载文件夹失败: {e}", "ERROR")
     
     def display_content(self):
@@ -471,7 +847,8 @@ class EpubNovelMaster(QMainWindow):
         if isinstance(reader, FolderReader):
             inner = reader.get_current_reader()
             if not inner or inner.get_chapter_count() == 0:
-                self.reader_display.setHtml("<p>无法读取该文件或文件中没有可显示的内容。</p>")
+                self.reader_display.setHtml("<p>%s</p>" % i18n.t(
+                    "msg.no_displayable_content_folder"))
                 self.update_progress()
                 return
             # 修正越界的章节索引
@@ -484,7 +861,8 @@ class EpubNovelMaster(QMainWindow):
             chapter_index = inner.current_chapter
         else:
             if reader.get_chapter_count() == 0:
-                self.reader_display.setHtml("<p>文件中没有可显示的内容。</p>")
+                self.reader_display.setHtml("<p>%s</p>" % i18n.t(
+                    "msg.no_displayable_content"))
                 self.update_progress()
                 return
             if not (0 <= reader.current_chapter < reader.get_chapter_count()):
@@ -743,20 +1121,98 @@ class EpubNovelMaster(QMainWindow):
         
         self.display_content()
     
+    # ---------------- 章节跳转与章内位置 ----------------
+    
+    def chapter_count(self):
+        """当前文件的章节总数（未打开书籍时为 0）"""
+        if not self.current_reader:
+            return 0
+        
+        if isinstance(self.current_reader, FolderReader):
+            reader = self.current_reader.get_current_reader()
+            return reader.get_chapter_count() if reader else 0
+        return self.current_reader.get_chapter_count()
+    
+    def current_chapter_index(self):
+        """当前章节序号（未打开书籍时为 0）"""
+        if not self.current_reader:
+            return 0
+        
+        if isinstance(self.current_reader, FolderReader):
+            reader = self.current_reader.get_current_reader()
+            return reader.current_chapter if reader else 0
+        return self.current_reader.current_chapter
+    
+    def goto_chapter(self):
+        """「转到章节」：按当前文件内的章节序号跳转"""
+        total = self.chapter_count()
+        if total <= 0:
+            QMessageBox.information(self, i18n.t("common.info"),
+                                    i18n.t("msg.no_book_opened"))
+            return
+        
+        current = self.current_chapter_index()
+        number, ok = QInputDialog.getInt(
+            self, i18n.t("dialog.goto_chapter"),
+            i18n.t("dialog.goto_chapter_prompt", total=total),
+            current + 1, 1, total, 1)
+        if not ok:
+            return
+        
+        self.jump_to_chapter(number - 1)
+    
+    def jump_to_chapter(self, index):
+        """切换到指定章节（越界自动夹到有效范围）"""
+        total = self.chapter_count()
+        if total <= 0:
+            return
+        
+        index = max(0, min(int(total) - 1, int(index)))
+        if isinstance(self.current_reader, FolderReader):
+            reader = self.current_reader.get_current_reader()
+            if reader is None:
+                return
+            reader.current_chapter = index
+        else:
+            self.current_reader.current_chapter = index
+        
+        self.display_content()
+        self.select_chapter_in_tree("chapter", index)
+        if DEBUG_MODE:
+            self.logger.debug(f"跳转到章节 {index + 1}/{total}")
+    
+    def scroll_to_chapter_start(self):
+        """回到当前章节开头"""
+        self.reader_display.verticalScrollBar().setValue(0)
+    
+    def scroll_to_chapter_end(self):
+        """跳到当前章节末尾"""
+        scroll = self.reader_display.verticalScrollBar()
+        scroll.setValue(scroll.maximum())
+    
     def update_progress(self):
         """更新进度"""
         if not self.current_reader:
+            self.progress_label.setText(
+                i18n.t("sidebar.progress", percent="0.0"))
+            self.progress_bar.setValue(0)
             return
         
         if isinstance(self.current_reader, FolderReader):
             reader = self.current_reader.get_current_reader()
-            if reader:
+            if reader and reader.get_chapter_count():
                 progress = (reader.current_chapter + 1) / reader.get_chapter_count() * 100
+            else:
+                progress = 0
         else:
-            progress = (self.current_reader.current_chapter + 1) / self.current_reader.get_chapter_count() * 100
+            count = self.current_reader.get_chapter_count()
+            progress = ((self.current_reader.current_chapter + 1) / count * 100
+                        if count else 0)
         
         self.progress_bar.setValue(int(progress))
-        self.progress_label.setText(f"阅读进度: {progress:.1f}%")
+        self.progress_label.setText(
+            i18n.t("sidebar.progress", default="阅读进度: {percent}%",
+                   percent=f"{progress:.1f}"))
     
     def update_recent_files(self, file_path):
         """更新最近文件列表"""
@@ -1106,8 +1562,8 @@ class EpubNovelMaster(QMainWindow):
         
         path = Path(dialog.selected_path)
         if not path.exists():
-            QMessageBox.warning(self, "文件不存在",
-                               f"{path}\n\n文件可能已被移动或删除。")
+            QMessageBox.warning(self, i18n.t("msg.file_missing"),
+                                i18n.t("msg.file_missing_detail", path=path))
             return
         
         if path.is_dir():
@@ -1142,12 +1598,11 @@ class EpubNovelMaster(QMainWindow):
         
         if self.sidebar_visible:
             self.sidebar.show()
-            self.toggle_sidebar_btn.setText("隐藏")
-            self.toggle_sidebar_action.setText("隐藏章节列表")
         else:
             self.sidebar.hide()
-            self.toggle_sidebar_btn.setText("显示")
-            self.toggle_sidebar_action.setText("显示章节列表")
+        
+        # 文案（显示 / 隐藏）已随之改变，刷新按钮、工具栏动作与提示文本
+        self._refresh_sidebar_text()
         
         # 保存侧边栏状态到配置
         self.config_manager.set("sidebar_visible", self.sidebar_visible)
@@ -1172,20 +1627,57 @@ class EpubNovelMaster(QMainWindow):
         
         font, ok = QFontDialog.getFont(current_font, self)
         if ok:
-            self.config_manager.set("font_family", font.family())
-            self.config_manager.set("font_size", font.pointSize())
-            self.apply_font(font.family(), font.pointSize())
+            family = font.family()
+            size = font.pointSize()
+            if size <= 0:
+                # 选到的是按像素定义的字号，退回原值，避免样式表里出现非法数值
+                size = int(self.config_manager.get("font_size", 16) or 16)
+            self.config_manager.set("font_family", family)
+            self.config_manager.set("font_size", size)
+            self.apply_font(family, size)
+            # 主题样式表里也写了字号，改完字体要重新套用一次才生效
+            self.apply_theme(self.config_manager.get("theme", "light"))
+    
+    def increase_font_size(self):
+        """字体增大"""
+        self._step_font_size(1)
+    
+    def decrease_font_size(self):
+        """字体减小"""
+        self._step_font_size(-1)
+    
+    def _step_font_size(self, delta):
+        """按步长调整阅读区字号（限制在 FONT_SIZE_MIN ~ FONT_SIZE_MAX）"""
+        current = int(self.config_manager.get("font_size", 16) or 16)
+        target = max(FONT_SIZE_MIN, min(FONT_SIZE_MAX, current + delta))
+        if target == current:
+            if DEBUG_MODE:
+                self.logger.debug(f"字号已到边界: {current}")
+            return
+        
+        self.config_manager.set("font_size", target)
+        self.apply_font(self.config_manager.get("font_family", "Microsoft YaHei"),
+                        target)
+        # 主题样式表里也写了字号，改完字号要重新套用一次才生效
+        self.apply_theme(self.config_manager.get("theme", "light"))
+        if DEBUG_MODE:
+            self.logger.debug(f"阅读区字号: {target}")
     
     def change_language(self, lang_code):
-        """更改语言"""
+        """切换界面语言（立即生效，无需重启）"""
+        if not i18n.set_language(lang_code):
+            self.logger.log(f"无法切换到语言: {lang_code}", "WARN")
+            return
+        
         self.config_manager.set("language", lang_code)
-        # 这里可以添加语言切换逻辑
-        QMessageBox.information(self, "提示", "语言设置将在下次启动时生效")
+        # 日志由 LanguageManager.set_language 统一输出，这里不再重复记录
+        self.retranslate_ui()
     
     def import_theme(self):
         """导入主题"""
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "导入主题", "", "主题文件 (*.json)"
+            self, i18n.t("dialog.import_theme"), "",
+            i18n.t("common.theme_file_filter")
         )
         
         if file_path:
@@ -1195,12 +1687,16 @@ class EpubNovelMaster(QMainWindow):
                 
                 theme_name = Path(file_path).stem
                 if self.theme_manager.save_theme(theme_name, theme_data):
-                    QMessageBox.information(self, "成功", "主题导入成功")
+                    QMessageBox.information(self, i18n.t("common.success"),
+                                            i18n.t("msg.theme_import_success"))
                 else:
-                    QMessageBox.warning(self, "错误", "主题导入失败")
+                    QMessageBox.warning(self, i18n.t("common.error"),
+                                        i18n.t("msg.theme_import_failed"))
                     
             except Exception as e:
-                QMessageBox.critical(self, "错误", f"导入主题失败: {str(e)}")
+                QMessageBox.critical(self, i18n.t("common.error"),
+                                     i18n.t("msg.theme_import_error",
+                                            error=str(e)))
     
     def export_theme(self):
         """导出主题"""
@@ -1208,16 +1704,20 @@ class EpubNovelMaster(QMainWindow):
         theme_data = self.theme_manager.get_theme(current_theme)
         
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "导出主题", f"{current_theme}.json", "主题文件 (*.json)"
+            self, i18n.t("dialog.export_theme"), f"{current_theme}.json",
+            i18n.t("common.theme_file_filter")
         )
         
         if file_path:
             try:
                 with open(file_path, 'w', encoding='utf-8') as f:
                     json.dump(theme_data, f, ensure_ascii=False, indent=2)
-                QMessageBox.information(self, "成功", "主题导出成功")
+                QMessageBox.information(self, i18n.t("common.success"),
+                                        i18n.t("msg.theme_export_success"))
             except Exception as e:
-                QMessageBox.critical(self, "错误", f"导出主题失败: {str(e)}")
+                QMessageBox.critical(self, i18n.t("common.error"),
+                                     i18n.t("msg.theme_export_error",
+                                            error=str(e)))
     
     def open_theme_generator(self):
         """打开主题生成器"""
@@ -1227,32 +1727,38 @@ class EpubNovelMaster(QMainWindow):
             theme_name = theme_data["name"]
             
             if self.theme_manager.save_theme(theme_name, theme_data):
-                QMessageBox.information(self, "成功", "主题创建成功")
+                QMessageBox.information(self, i18n.t("common.success"),
+                                        i18n.t("msg.theme_create_success"))
                 # 应用新主题
                 self.config_manager.set("theme", theme_name)
                 self.apply_theme(theme_name)
             else:
-                QMessageBox.warning(self, "错误", "主题创建失败")
+                QMessageBox.warning(self, i18n.t("common.error"),
+                                    i18n.t("msg.theme_create_failed"))
     
     def show_about(self):
         """显示关于对话框"""
-        about_text = f"""
-        <h2>{PROJECT_NAME}</h2>
-        <p>版本: {VERSION}</p>
-        <p>作者: {AUTHOR_NAME}</p>
-        <p>一个功能强大的小说阅读器，支持多种格式和丰富的自定义选项。</p>
-        <p>功能特性:</p>
-        <ul>
-            <li>支持 {supported_extensions_text()} 文件格式</li>
-            <li>支持文件夹模式阅读（可跨文件连续翻章）</li>
-            <li>自动保存阅读记录</li>
-            <li>主题切换和自定义</li>
-            <li>多语言支持</li>
-            <li>现代化的用户界面</li>
-        </ul>
-        """
+        feature_params = {
+            "about.feature_formats": {"formats": supported_extensions_text()},
+            "about.feature_folder": {},
+            "about.feature_autosave": {},
+            "about.feature_theme": {},
+            "about.feature_i18n": {},
+            "about.feature_shortcuts": {},
+            "about.feature_ui": {},
+        }
+        features = "".join(f"<li>{i18n.t(key, **params)}</li>"
+                           for key, params in feature_params.items())
+        about_text = (
+            f"<h2>{PROJECT_NAME}</h2>"
+            f"<p>{i18n.t('about.version', version=VERSION)}</p>"
+            f"<p>{i18n.t('about.author', author=AUTHOR_NAME)}</p>"
+            f"<p>{i18n.t('about.description')}</p>"
+            f"<p>{i18n.t('about.features')}</p>"
+            f"<ul>{features}</ul>"
+        )
         
-        QMessageBox.about(self, "关于", about_text)
+        QMessageBox.about(self, i18n.t("about.title"), about_text)
     
     def closeEvent(self, event):
         """关闭事件"""
@@ -1272,7 +1778,7 @@ class EpubNovelMaster(QMainWindow):
         # 释放阅读器（清理 ZIP/JAR/MOBI 等解压出来的临时文件）
         self.release_current_reader()
         
-        self.logger.log("EpubNovelMaster 正常退出")
+        self.logger.log(f"{PROJECT_NAME} 正常退出")
         event.accept()
 
     def release_current_reader(self):
@@ -1307,7 +1813,9 @@ class EpubNovelMaster(QMainWindow):
         if book_title:
             title = f"{book_title} - {base_title}"
             if author:
-                title = f"{book_title}（{author}） - {base_title}"
+                title = i18n.t("window.title_with_author",
+                               default="{title}（{author}） - {app}",
+                               title=book_title, author=author, app=base_title)
             self.setWindowTitle(title)
         else:
             self.setWindowTitle(base_title)

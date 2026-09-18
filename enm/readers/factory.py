@@ -8,6 +8,7 @@
 
 from pathlib import Path
 
+from .. import i18n
 from ..constants import DEBUG_MODE
 from ..logger import logger
 from .archive import JarReader, ZipReader
@@ -54,31 +55,34 @@ def get_reader_class(extension):
     return EXTENSION_READERS.get(extension.lower())
 
 
-# 文件对话框中的分组过滤器
+# 文件对话框中的分组过滤器（组名在语言文件的 filter.* 里）
 FORMAT_GROUPS = (
-    ("电子书文件", ('.epub', '.mobi', '.azw', '.azw3', '.prc', '.umd', '.fb2')),
-    ("文档文件", ('.pdf', '.docx', '.txt', '.html', '.htm', '.xhtml')),
-    ("压缩包", ('.jar', '.zip')),
+    ("filter.ebooks", ('.epub', '.mobi', '.azw', '.azw3', '.prc', '.umd', '.fb2')),
+    ("filter.documents", ('.pdf', '.docx', '.txt', '.html', '.htm', '.xhtml')),
+    ("filter.archives", ('.jar', '.zip')),
 )
 
 
 def supported_extensions_text():
-    """返回可读格式的展示文本，例如 'EPUB、TXT、PDF'"""
+    """返回可读格式的展示文本，例如 ``'EPUB、TXT、PDF'`` / ``'EPUB, TXT, PDF'``"""
     names = []
     for extension in EXTENSION_READERS:
         name = extension.lstrip('.').upper()
         if name not in names:
             names.append(name)
-    return '、'.join(names)
+    separator = i18n.t("common.list_separator", default='、')
+    return separator.join(names)
 
 
 def build_open_file_filter():
-    """构建 QFileDialog 使用的过滤器字符串"""
+    """构建 QFileDialog 使用的过滤器字符串（跟随当前语言）"""
     all_patterns = ' '.join(f'*{extension}' for extension in EXTENSION_READERS)
-    parts = [f"支持的文件 ({all_patterns})"]
-    for group_name, extensions in FORMAT_GROUPS:
-        parts.append(f"{group_name} ({' '.join('*' + ext for ext in extensions)})")
-    parts.append("所有文件 (*)")
+    parts = [f"{i18n.t('filter.supported', default='支持的文件')} "
+             f"({all_patterns})"]
+    for group_key, extensions in FORMAT_GROUPS:
+        patterns = ' '.join('*' + ext for ext in extensions)
+        parts.append(f"{i18n.t(group_key, default=group_key)} ({patterns})")
+    parts.append(f"{i18n.t('filter.all_files', default='所有文件')} (*)")
     return ";;".join(parts)
 
 
@@ -87,8 +91,11 @@ def create_reader(file_path):
     extension = Path(file_path).suffix.lower()
     reader_class = EXTENSION_READERS.get(extension)
     if reader_class is None:
-        raise ReaderError(f"不支持的文件格式: {extension or '未知'}"
-                          f"（支持: {supported_extensions_text()}）")
+        raise ReaderError(
+            i18n.t("msg.unsupported_format",
+                   default="不支持的文件格式: {extension}\n\n支持的格式: {supported}",
+                   extension=extension or i18n.t("common.unknown", default='未知'),
+                   supported=supported_extensions_text()))
 
     if DEBUG_MODE:
         logger.debug(f"创建阅读器: {reader_class.__name__} -> {file_path}")

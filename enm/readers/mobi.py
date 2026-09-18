@@ -11,7 +11,7 @@ import struct
 from pathlib import Path
 
 from ..logger import logger
-from .base import (BaseReader, ReaderError, clean_html_content,
+from .base import (BaseReader, ReaderError, auto_title, clean_html_content,
                    palmdoc_decompress, split_html_by_headings, strip_tags)
 from .images import (MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES, guess_mime,
                      looks_like_image, to_data_uri)
@@ -289,17 +289,20 @@ class MobiReader(BaseReader):
             for i, fragment in enumerate(fragments):
                 html = clean_html_content(fragment)
                 sub_chapters = split_html_by_headings(html)
+                fallback = auto_title("book.section_n", count=i + 1)
                 if sub_chapters:
                     for title, piece in sub_chapters:
-                        self._add_chapter(title, piece, f'第{i + 1}节')
+                        self._add_chapter(title, piece, fallback)
                 else:
-                    self._add_chapter(None, html, f'第{i + 1}节')
+                    self._add_chapter(None, html, fallback)
             return
 
         html = clean_html_content(body)
         sub_chapters = split_html_by_headings(html)
         if sub_chapters:
             for title, piece in sub_chapters:
-                self._add_chapter(title, piece, '正文')
+                self._add_chapter(title, piece,
+                                  auto_title("book.body", default='正文'))
         else:
-            self._add_chapter(None, html, '全文')
+            self._add_chapter(None, html,
+                              auto_title("book.full_text", default='全文'))

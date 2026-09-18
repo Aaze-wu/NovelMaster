@@ -5,7 +5,7 @@
 !.gitignore
 !build*
 !clean*
-!EpubNovelMaster.py
+!NovelMaster.py
 !install*
 !license
 !*.md

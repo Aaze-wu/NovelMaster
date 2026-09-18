@@ -6,6 +6,7 @@ import shutil
 
 import chardet
 
+from .. import i18n
 from ..logger import logger
 from .images import isolate_block_images
 
@@ -16,6 +17,19 @@ from .images import isolate_block_images
 
 class ReaderError(Exception):
     """阅读器错误：携带面向用户的中文提示信息"""
+
+
+def auto_title(key, **params):
+    """标记一个「程序自动生成」的章节标题。
+
+    阅读器把 ``第N章`` 这类编号标题交给语言文件生成：返回的 ``(键, 参数)``
+    会被 :meth:`BaseReader._add_chapter` 解析成标题并记录来源，
+    这样用户切换语言后可以用 :meth:`BaseReader.retranslate_titles` 就地重新生成，
+    不必重新解析整本书。
+
+    ``params`` 里可以直接写 ``default=...``，缺键时作为兑底文案。
+    """
+    return (key, params)
 
 
 def escape_html(text):
@@ -320,9 +334,37 @@ class BaseReader:
         content = content or ""
         if not strip_tags(content) and '<img' not in content.lower():
             return
+
+        # 允许调用方把 auto_title(...) 直接写在标题位置
+        if isinstance(title, tuple):
+            fallback_title, title = title, None
+
+        entry = {'title': title, 'content': content}
         if not title:
-            title = fallback_title or f"第{len(self.chapters) + 1}章"
-        self.chapters.append({'title': title, 'content': content})
+            if isinstance(fallback_title, tuple):
+                key, params = fallback_title
+                entry['title_spec'] = (key, dict(params))
+                entry['title'] = i18n.t(key, **params)
+            else:
+                count = len(self.chapters) + 1
+                entry['title'] = (fallback_title
+                                  or i18n.t("book.chapter_n", count=count))
+        self.chapters.append(entry)
+
+    def _add_entry(self, title, content, **extra):
+        """按原样登记一个章节（不做空内容过滤），并解析 auto_title 标记。
+
+        主要给自行拼装字典的阅读器（如 EPUB 会额外保存 ``id``）复用。
+        """
+        entry = {'title': None, 'content': content}
+        entry.update(extra)
+        if isinstance(title, tuple):
+            key, params = title
+            entry['title_spec'] = (key, dict(params))
+            entry['title'] = i18n.t(key, **params)
+        else:
+            entry['title'] = title
+        self.chapters.append(entry)
 
     def _add_text_chapter(self, title, text, fallback_title=None):
         self._add_chapter(title, text_to_html(text), fallback_title)
@@ -331,10 +373,28 @@ class BaseReader:
         if self.chapters:
             self.chapters[-1]['content'] += html
         else:
-            self._add_chapter(None, html, '正文')
+            self._add_chapter(None, html,
+                              auto_title("book.body", default='正文'))
 
-    def _finish(self, default_title="全文"):
+    def _finish(self, default_title=None):
         if not self.chapters:
-            self.chapters.append({'title': default_title,
-                                  'content': '<p>（没有可显示的内容）</p>'})
+            self.chapters.append({
+                'title': default_title or i18n.t("book.full_text", default='全文'),
+                'content': '<p>%s</p>' % i18n.t("book.empty_chapter",
+                                                default='（没有可显示的内容）')})
         self.current_chapter = 0
+
+    def retranslate_titles(self):
+        """按当前语言重新生成自动编号的章节标题（切换语言后调用）。
+
+        返回是否发生了改动；章节标题来自书籍文件本身时不会被动到。
+        """
+        changed = False
+        for chapter in self.chapters:
+            spec = chapter.get('title_spec')
+            if not spec:
+                continue
+            key, params = spec
+            chapter['title'] = i18n.t(key, **params)
+            changed = True
+        return changed

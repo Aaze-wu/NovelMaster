@@ -2,12 +2,12 @@
 chcp 65001 >nul
 
 echo ========================================
-echo EpubNovelMaster - 清理脚本
+echo NovelMaster - 清理脚本
 echo ========================================
 echo.
 
 REM 要清理的目录和文件
-set "CLEAN_DIRS=dist build EpubNovelMaster.dist EpubNovelMaster.build __pycache__"
+set "CLEAN_DIRS=dist build NovelMaster.dist NovelMaster.build __pycache__"
 set "CLEAN_FILES=*.spec"
 
 REM 显示要清理的内容

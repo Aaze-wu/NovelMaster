@@ -8,8 +8,8 @@
 * 一键清理失效记录（记录指向的文件已经被移动或删除）；
 * 右键菜单：继续阅读 / 打开所在文件夹 / 复制完整路径 / 删除记录。
 
-界面文案沿用主窗口的写法直接写中文（项目当前的菜单、按钮都是硬编码中文，
-``lang/*.json`` 只用来持久化语言选项）。
+界面文案全部走 ``enm.i18n``（语言键前缀 ``continue.`` / ``common.``），
+对话框在构造时读取当前语言，因此切换语言后下次打开就是新文案。
 """
 
 import subprocess
@@ -35,11 +35,11 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
 )
 
+from .. import i18n
 from ..constants import PROJECT_NAME
 from ..logger import logger
 
-# 表格列
-COLUMN_TITLES = ("书名", "作者", "进度", "已读", "阅读时长", "最后阅读", "文件")
+# 表格列（序号常量不随语言变化，标题文字随时从语言文件取）
 (
     COLUMN_TITLE,
     COLUMN_AUTHOR,
@@ -48,7 +48,23 @@ COLUMN_TITLES = ("书名", "作者", "进度", "已读", "阅读时长", "最后
     COLUMN_DURATION,
     COLUMN_LAST,
     COLUMN_FILE,
-) = range(len(COLUMN_TITLES))
+) = range(7)
+
+COLUMN_COUNT = 7
+
+
+def column_titles():
+    """表头文案（跟随当前语言）"""
+    return [i18n.t(key) for key in (
+        "continue.column_title",
+        "continue.column_author",
+        "continue.column_progress",
+        "continue.column_chapters",
+        "continue.column_duration",
+        "continue.column_last_read",
+        "continue.column_file",
+    )]
+
 
 # 失效记录的置灰颜色
 MISSING_COLOR = QColor(150, 150, 150)
@@ -56,23 +72,30 @@ MISSING_COLOR = QColor(150, 150, 150)
 _TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
+def dash():
+    """空占位符（中文为破折号，英文为短横线）"""
+    return i18n.t("common.dash", default="—")
+
+
 def format_duration(seconds):
-    """把秒数格式化成「1 小时 23 分」这类可读文本"""
+    """把秒数格式化成「1 小时 23 分」这类可读文本（随时按当前语言生成）"""
     seconds = int(seconds or 0)
     if seconds <= 0:
-        return "—"
+        return dash()
 
     hours, remainder = divmod(seconds, 3600)
     minutes, secs = divmod(remainder, 60)
     if hours:
-        return f"{hours} 小时 {minutes} 分"
+        return i18n.t("continue.duration_hours", default="{hours} 小时 {minutes} 分",
+                      hours=hours, minutes=minutes)
     if minutes:
-        return f"{minutes} 分 {secs} 秒"
-    return f"{secs} 秒"
+        return i18n.t("continue.duration_minutes", default="{minutes} 分 {seconds} 秒",
+                      minutes=minutes, seconds=secs)
+    return i18n.t("continue.duration_seconds", default="{seconds} 秒", seconds=secs)
 
 
 def latest_time_text(record):
-    """记录的最后阅读时间（缺字段时退回保存时间，都没有则返回 ``—``）"""
+    """记录的最后阅读时间（缺字段时退回保存时间，都没有则返回占位符）"""
     for field in ("last_opened_at", "saved_at"):
         text = str(record.get(field) or "").strip()
         if text:
@@ -81,7 +104,7 @@ def latest_time_text(record):
     timestamp = record.get("timestamp")
     if isinstance(timestamp, (int, float)) and timestamp > 0:
         return time.strftime(_TIME_FORMAT, time.localtime(timestamp))
-    return "—"
+    return dash()
 
 
 class _RecordItem(QTreeWidgetItem):
@@ -120,7 +143,7 @@ class ContinueReadingDialog(QDialog):
         # [(记录文件路径, 记录内容, 文件是否还在)]
         self.records = []
 
-        self.setWindowTitle(f"继续阅读 - {PROJECT_NAME}")
+        self.setWindowTitle(i18n.t("dialog.continue_reading", app=PROJECT_NAME))
         self.setModal(True)
         self.resize(900, 520)
         self.setup_ui()
@@ -132,14 +155,14 @@ class ContinueReadingDialog(QDialog):
         layout = QVBoxLayout(self)
 
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("搜索书名、作者或文件名…")
+        self.search_edit.setPlaceholderText(i18n.t("continue.search_placeholder"))
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.textChanged.connect(self.apply_filter)
         layout.addWidget(self.search_edit)
 
         self.record_tree = QTreeWidget()
-        self.record_tree.setColumnCount(len(COLUMN_TITLES))
-        self.record_tree.setHeaderLabels(list(COLUMN_TITLES))
+        self.record_tree.setColumnCount(COLUMN_COUNT)
+        self.record_tree.setHeaderLabels(column_titles())
         self.record_tree.setRootIsDecorated(False)
         self.record_tree.setAlternatingRowColors(True)
         self.record_tree.setUniformRowHeights(True)
@@ -167,13 +190,13 @@ class ContinueReadingDialog(QDialog):
         layout.addWidget(self.summary_label)
 
         button_layout = QHBoxLayout()
-        self.open_btn = QPushButton("继续阅读")
+        self.open_btn = QPushButton(i18n.t("continue.open"))
         self.open_btn.clicked.connect(self.open_selected)
-        self.delete_btn = QPushButton("删除记录")
+        self.delete_btn = QPushButton(i18n.t("continue.delete"))
         self.delete_btn.clicked.connect(self.delete_selected)
-        self.clean_btn = QPushButton("清理失效记录")
+        self.clean_btn = QPushButton(i18n.t("continue.clean"))
         self.clean_btn.clicked.connect(self.clean_missing)
-        self.close_btn = QPushButton("关闭")
+        self.close_btn = QPushButton(i18n.t("continue.close"))
         self.close_btn.clicked.connect(self.reject)
 
         button_layout.addWidget(self.open_btn)
@@ -211,9 +234,11 @@ class ContinueReadingDialog(QDialog):
 
     def build_item(self, record, record_file, exists):
         """把一条记录转成表格行"""
-        novelname = str(record.get("novelname") or record.get("filename") or "未知书名")
-        author = str(record.get("author") or "—")
-        filename = str(record.get("filename") or "—")
+        placeholder = dash()
+        novelname = str(record.get("novelname") or record.get("filename")
+                        or i18n.t("book.unknown_title"))
+        author = str(record.get("author") or placeholder)
+        filename = str(record.get("filename") or placeholder)
         if not exists:
             novelname = f"⚠ {novelname}"
 
@@ -221,13 +246,14 @@ class ContinueReadingDialog(QDialog):
         reached = max(int(record.get("max_chapter") or 0), int(record.get("chapter") or 0)) + 1
         if total_chapters > 0:
             percent = min(100.0, reached / total_chapters * 100)
-            progress_text = f"{reached}/{total_chapters}（{percent:.0f}%）"
+            progress_text = i18n.t("continue.progress", reached=reached,
+                                   total=total_chapters, percent=f"{percent:.0f}")
             progress_key = (0, percent)
         elif reached > 1:
-            progress_text = f"第 {reached} 章"
+            progress_text = i18n.t("continue.progress_chapter", count=reached)
             progress_key = (1, 0.0)
         else:
-            progress_text = "—"
+            progress_text = placeholder
             progress_key = (2, 0.0)
 
         chapter_count = int(record.get("read_chapter_count") or 0)
@@ -238,7 +264,8 @@ class ContinueReadingDialog(QDialog):
             novelname,
             author,
             progress_text,
-            f"{chapter_count} 章" if chapter_count else "—",
+            (i18n.t("continue.chapters_count", count=chapter_count)
+             if chapter_count else placeholder),
             format_duration(read_seconds),
             last_read,
             filename,
@@ -256,28 +283,35 @@ class ContinueReadingDialog(QDialog):
         item = _RecordItem(texts, sort_keys, record, record_file, exists)
         item.setToolTip(COLUMN_TITLE, self.build_tooltip(record, exists))
         if not exists:
-            for column in range(len(COLUMN_TITLES)):
+            for column in range(COLUMN_COUNT):
                 item.setForeground(column, QBrush(MISSING_COLOR))
         return item
 
     @staticmethod
     def build_tooltip(record, exists):
         """鼠标悬停时的详细信息"""
+        placeholder = dash()
         lines = []
         if not exists:
-            lines.append("文件不存在或已被移动，无法继续阅读")
-        lines.extend([
-            f"文件路径：{record.get('file_path') or '—'}",
-            f"书名：{record.get('novelname') or '—'}",
-            f"作者：{record.get('author') or '—'}",
-            f"打开次数：{int(record.get('open_count') or 0)}",
-            f"首次打开：{record.get('first_opened_at') or '—'}",
-            f"最后打开：{record.get('last_opened_at') or '—'}",
-            f"累计阅读：{format_duration(record.get('total_read_seconds'))}",
-            f"已读章节：{int(record.get('read_chapter_count') or 0)} 章",
-            f"记录键：{record.get('key_type', '?')}:{record.get('md5', '?')}",
-            f"记录更新时间：{record.get('saved_at') or '—'}",
-        ])
+            lines.append(i18n.t("continue.tooltip_missing"))
+        rows = (
+            ("continue.tooltip_file_path", record.get("file_path") or placeholder),
+            ("continue.tooltip_title", record.get("novelname") or placeholder),
+            ("continue.tooltip_author", record.get("author") or placeholder),
+            ("continue.tooltip_open_count", int(record.get("open_count") or 0)),
+            ("continue.tooltip_first_opened", record.get("first_opened_at") or placeholder),
+            ("continue.tooltip_last_opened", record.get("last_opened_at") or placeholder),
+            ("continue.tooltip_total_duration",
+             format_duration(record.get("total_read_seconds"))),
+            ("continue.tooltip_read_chapters",
+             int(record.get("read_chapter_count") or 0)),
+            ("continue.tooltip_record_key",
+             f"{record.get('key_type', '?')}:{record.get('md5', '?')}"),
+            ("continue.tooltip_saved_at", record.get("saved_at") or placeholder),
+        )
+        for key, value in rows:
+            lines.append(i18n.t("continue.tooltip_line", label=i18n.t(key),
+                                value=value))
         return "\n".join(lines)
 
     # ---------------- 过滤与状态 ----------------
@@ -312,11 +346,12 @@ class ContinueReadingDialog(QDialog):
 
         parts = []
         if visible is not None and visible != total:
-            parts.append(f"筛选出 {visible} 条")
-        parts.append(f"共 {total} 条记录")
-        parts.append(f"累计阅读 {format_duration(seconds)}")
+            parts.append(i18n.t("continue.summary_filtered", count=visible))
+        parts.append(i18n.t("continue.summary_total", count=total))
+        parts.append(i18n.t("continue.summary_duration",
+                            duration=format_duration(seconds)))
         if missing:
-            parts.append(f"其中 {missing} 条文件已不存在")
+            parts.append(i18n.t("continue.summary_missing", count=missing))
         self.summary_label.setText(" · ".join(parts))
 
     def update_buttons(self):
@@ -346,16 +381,16 @@ class ContinueReadingDialog(QDialog):
 
         file_path = item.record.get("file_path")
         if not file_path:
-            QMessageBox.warning(self, "无法打开", "这条记录里没有文件路径信息。")
+            QMessageBox.warning(self, i18n.t("continue.err_no_path_title"),
+                                i18n.t("continue.err_no_path"))
             return
 
         path = Path(str(file_path))
         if not path.exists():
             QMessageBox.warning(
                 self,
-                "文件不存在",
-                f"{path}\n\n文件可能已被移动或删除；"
-                "如果确认不再需要，可以用「清理失效记录」删除这条记录。",
+                i18n.t("continue.err_missing_title"),
+                i18n.t("continue.err_missing", path=path),
             )
             return
 
@@ -368,11 +403,12 @@ class ContinueReadingDialog(QDialog):
         if item is None:
             return
 
-        name = item.record.get("novelname") or item.record.get("filename") or "这条记录"
+        name = (item.record.get("novelname") or item.record.get("filename")
+                or i18n.t("continue.delete_fallback_name"))
         answer = QMessageBox.question(
             self,
-            "删除阅读记录",
-            f"确定删除「{name}」的阅读记录吗？\n\n只会删除阅读进度与统计，不会删除书籍文件。",
+            i18n.t("continue.delete_title"),
+            i18n.t("continue.delete_body", name=name),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -387,13 +423,14 @@ class ContinueReadingDialog(QDialog):
         """批量清理指向的文件已不存在的记录"""
         missing = [(f, r) for f, r, exists in self.records if not exists]
         if not missing:
-            QMessageBox.information(self, "清理失效记录", "没有失效的阅读记录。")
+            QMessageBox.information(self, i18n.t("continue.clean_title"),
+                                    i18n.t("continue.clean_none"))
             return
 
         answer = QMessageBox.question(
             self,
-            "清理失效记录",
-            f"有 {len(missing)} 条记录指向的文件已经不存在，确定全部清理吗？",
+            i18n.t("continue.clean_title"),
+            i18n.t("continue.clean_confirm", count=len(missing)),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -407,7 +444,8 @@ class ContinueReadingDialog(QDialog):
 
         logger.log(f"清理失效阅读记录: {removed} 条")
         self.reload()
-        QMessageBox.information(self, "清理失效记录", f"已清理 {removed} 条失效记录。")
+        QMessageBox.information(self, i18n.t("continue.clean_title"),
+                                i18n.t("continue.clean_done", count=removed))
 
     def show_context_menu(self, position):
         """右键菜单：继续阅读 / 打开所在文件夹 / 复制完整路径 / 删除记录"""
@@ -417,11 +455,11 @@ class ContinueReadingDialog(QDialog):
         self.record_tree.setCurrentItem(item)
 
         menu = QMenu(self)
-        open_action = menu.addAction("继续阅读")
-        folder_action = menu.addAction("打开所在文件夹")
-        copy_action = menu.addAction("复制完整路径")
+        open_action = menu.addAction(i18n.t("continue.menu_open"))
+        folder_action = menu.addAction(i18n.t("continue.menu_folder"))
+        copy_action = menu.addAction(i18n.t("continue.menu_copy"))
         menu.addSeparator()
-        delete_action = menu.addAction("删除记录")
+        delete_action = menu.addAction(i18n.t("continue.menu_delete"))
 
         action = menu.exec_(self.record_tree.viewport().mapToGlobal(position))
         if action is open_action:

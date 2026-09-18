@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    EpubNovelMaster 清理脚本（PowerShell 版，对应 clean.bat）。
+    NovelMaster 清理脚本（PowerShell 版，对应 clean.bat）。
 
 .DESCRIPTION
     清理打包产物、Nuitka 中间目录、Python 缓存与 *.spec 文件。
@@ -43,7 +43,7 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 try { $OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
 $ProjectRoot = $PSScriptRoot
-$AppName = 'EpubNovelMaster'
+$AppName = 'NovelMaster'
 $PackageDir = Join-Path $ProjectRoot 'enm'
 
 function Write-Info { param([string]$Message) Write-Host "[信息] $Message" -ForegroundColor Cyan }
@@ -57,7 +57,7 @@ function Wait-Exit {
 }
 
 Write-Host '========================================' -ForegroundColor DarkGray
-Write-Host 'EpubNovelMaster - 清理脚本 (PowerShell)' -ForegroundColor DarkGray
+Write-Host 'NovelMaster - 清理脚本 (PowerShell)' -ForegroundColor DarkGray
 Write-Host '========================================' -ForegroundColor DarkGray
 Write-Host ''
 

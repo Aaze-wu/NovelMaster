@@ -1,3 +1,3 @@
 @echo off
-python EpubNovelMaster.py
+python NovelMaster.py
 pause

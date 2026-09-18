@@ -5,7 +5,7 @@ from pathlib import Path
 import chardet
 
 from ..logger import logger
-from .base import BaseReader
+from .base import BaseReader, auto_title
 
 
 class TxtReader(BaseReader):
@@ -65,8 +65,9 @@ class TxtReader(BaseReader):
 
             if self.is_chapter_title(line):
                 if current_chapter:
-                    self._add_text_chapter(chapter_title, '\n'.join(current_chapter),
-                                           '序章')
+                    self._add_text_chapter(
+                        chapter_title, '\n'.join(current_chapter),
+                        auto_title("book.prologue", default='序章'))
                     current_chapter = []
                 chapter_title = line
                 continue
@@ -75,10 +76,14 @@ class TxtReader(BaseReader):
 
         # 添加最后一章
         if current_chapter:
-            fallback = '全文' if chapter_title is None else '序章'
+            if chapter_title is None:
+                fallback = auto_title("book.full_text", default='全文')
+            else:
+                fallback = auto_title("book.prologue", default='序章')
             self._add_text_chapter(chapter_title, '\n'.join(current_chapter), fallback)
 
         # 如果没有检测到章节，将整个内容作为一章
         if not self.chapters:
-            self._add_text_chapter(None, self.content, '全文')
+            self._add_text_chapter(None, self.content,
+                                   auto_title("book.full_text", default='全文'))
 

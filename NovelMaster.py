@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""EpubNovelMaster 程序入口。
+"""NovelMaster 程序入口。
 
 实现代码已经按职责拆分到 :mod:`enm` 包中：
 
@@ -14,8 +14,8 @@
 
 运行方式::
 
-    python EpubNovelMaster.py            # 正常启动
-    python EpubNovelMaster.py --debug    # 打开调试日志
+    python NovelMaster.py                # 正常启动
+    python NovelMaster.py --debug        # 打开调试日志
 """
 
 import sys
@@ -23,7 +23,7 @@ import sys
 from PyQt5.QtWidgets import QApplication
 
 from enm.constants import AUTHOR_NAME, PROJECT_NAME, VERSION
-from enm.ui.main_window import EpubNovelMaster
+from enm.ui.main_window import NovelMaster
 
 
 def main():
@@ -35,7 +35,7 @@ def main():
     app.setOrganizationName(AUTHOR_NAME)
 
     # 创建主窗口
-    window = EpubNovelMaster()
+    window = NovelMaster()
     window.show()
 
     # 运行应用程序

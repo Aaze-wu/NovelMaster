@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    EpubNovelMaster 高级打包脚本（PowerShell 版，对应 build-advanced.bat）。
+    NovelMaster 高级打包脚本（PowerShell 版，对应 build-advanced.bat）。
 
 .DESCRIPTION
     提供更多打包选项：打包模式（单文件 / 独立目录 / 调试）与优化级别
@@ -92,12 +92,12 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 try { $OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
 $ProjectRoot = $PSScriptRoot
-$AppName = 'EpubNovelMaster'
+$AppName = 'NovelMaster'
 $MainFileName = "$AppName.py"
 $MainFile = Join-Path $ProjectRoot $MainFileName
 $IconFile = Join-Path $ProjectRoot 'icon\icon.ico'
 $OutputDirPath = Join-Path $ProjectRoot $OutputDir
-$DefaultDescription = 'EpubNovelMaster - 现代化小说阅读器'
+$DefaultDescription = 'NovelMaster - 现代化小说阅读器'
 
 function Write-Info { param([string]$Message) Write-Host "[信息] $Message" -ForegroundColor Cyan }
 function Write-Ok { param([string]$Message) Write-Host "[成功] $Message" -ForegroundColor Green }
@@ -385,7 +385,7 @@ function Read-ProjectMetadata {
 }
 
 Write-Host '========================================' -ForegroundColor DarkGray
-Write-Host 'EpubNovelMaster - 高级打包脚本 (PowerShell)' -ForegroundColor DarkGray
+Write-Host 'NovelMaster - 高级打包脚本 (PowerShell)' -ForegroundColor DarkGray
 Write-Host '========================================' -ForegroundColor DarkGray
 Write-Host ''
 

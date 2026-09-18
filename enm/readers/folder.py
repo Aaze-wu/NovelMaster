@@ -51,6 +51,14 @@ class FolderReader(BaseReader):
         reader = self.get_current_reader()
         return reader.get_chapter_content(index) if reader else ""
 
+    def retranslate_titles(self):
+        """让已缓存的子阅读器重新生成自动编号的章节标题"""
+        changed = False
+        for reader in self._reader_cache.values():
+            if reader is not None and reader.retranslate_titles():
+                changed = True
+        return changed
+
     def get_book_info(self):
         current = self.get_current_file()
         title = current['name'] if current else self.folder_path.name

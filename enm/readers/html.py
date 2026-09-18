@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from .base import (BaseReader, clean_html_content, decode_bytes,
+from .base import (BaseReader, auto_title, clean_html_content, decode_bytes,
                    split_html_by_headings)
 from .images import (MAX_IMAGE_BYTES, clean_reference, guess_mime,
                      inline_images, looks_like_image)
@@ -23,9 +23,11 @@ class HtmlReader(BaseReader):
         chapters = split_html_by_headings(body)
         if chapters:
             for title, fragment in chapters:
-                self._add_chapter(title, fragment, '正文')
+                self._add_chapter(title, fragment,
+                                  auto_title("book.body", default='正文'))
         else:
-            self._add_chapter(None, body, '全文')
+            self._add_chapter(None, body,
+                              auto_title("book.full_text", default='全文'))
 
         self._finish()
 

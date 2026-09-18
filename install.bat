@@ -3,7 +3,7 @@ chcp 65001 >nul
 setlocal
 
 REM ========================================
-REM EpubNovelMaster - 环境安装脚本
+REM NovelMaster - 环境安装脚本
 REM   - 虚拟环境不存在时自动创建
 REM   - 自动选择合适的 pip 镜像源
 REM   - 安装 requirements.txt 中的依赖

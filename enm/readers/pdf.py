@@ -1,6 +1,6 @@
 """PDF 阅读器，依赖 pypdf（懒加载）。"""
 
-from .base import BaseReader, ReaderError
+from .base import BaseReader, ReaderError, auto_title
 
 
 class PdfReader(BaseReader):
@@ -41,15 +41,16 @@ class PdfReader(BaseReader):
         if outline:
             for title, start, end in outline:
                 self._add_text_chapter(title, '\n'.join(page_texts[start:end]),
-                                       f'第 {start + 1} 页')
+                                       auto_title("book.page_n", count=start + 1))
         else:
             step = self.PAGES_PER_CHAPTER
             for start in range(0, page_count, step):
                 end = min(start + step, page_count)
                 if end - start == 1:
-                    title = f"第 {start + 1} 页"
+                    title = auto_title("book.page_n", count=start + 1)
                 else:
-                    title = f"第 {start + 1} - {end} 页"
+                    title = auto_title("book.page_range", start=start + 1,
+                                       end=end)
                 self._add_text_chapter(title, '\n'.join(page_texts[start:end]))
 
         self._finish()

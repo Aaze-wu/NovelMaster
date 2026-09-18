@@ -1,10 +1,10 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    EpubNovelMaster 启动脚本（PowerShell 版，对应 run.bat）。
+    NovelMaster 启动脚本（PowerShell 版，对应 run.bat）。
 
 .DESCRIPTION
-    使用 Python 启动 EpubNovelMaster 图形界面。
+    使用 Python 启动 NovelMaster 图形界面。
 
 .PARAMETER Python
     指定 Python 解释器的命令或完整路径，默认为 PATH 中的 python。
@@ -54,7 +54,7 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 try { $OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
 $ProjectRoot = $PSScriptRoot
-$MainFileName = 'EpubNovelMaster.py'
+$MainFileName = 'NovelMaster.py'
 $MainFile = Join-Path $ProjectRoot $MainFileName
 
 function Write-Info { param([string]$Message) Write-Host "[信息] $Message" -ForegroundColor Cyan }
@@ -83,7 +83,7 @@ function Resolve-Python {
 }
 
 Write-Host '========================================' -ForegroundColor DarkGray
-Write-Host 'EpubNovelMaster - 启动脚本 (PowerShell)' -ForegroundColor DarkGray
+Write-Host 'NovelMaster - 启动脚本 (PowerShell)' -ForegroundColor DarkGray
 Write-Host '========================================' -ForegroundColor DarkGray
 Write-Host ''
 

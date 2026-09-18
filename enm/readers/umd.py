@@ -9,7 +9,7 @@ import struct
 import zlib
 from pathlib import Path
 
-from .base import BaseReader, ReaderError
+from .base import BaseReader, ReaderError, auto_title
 from .images import (MAX_IMAGE_BYTES, guess_mime, looks_like_image,
                      to_data_uri)
 
@@ -89,7 +89,8 @@ class UmdReader(BaseReader):
 
         if not offsets:
             self._add_text_chapter(titles[0] if titles else None,
-                                   self._decode_utf16(content), '全文')
+                                   self._decode_utf16(content),
+                                   auto_title("book.full_text", default='全文'))
         else:
             count = min(len(offsets), len(titles) if titles else len(offsets))
             for i in range(count):
@@ -99,7 +100,7 @@ class UmdReader(BaseReader):
                     continue
                 text = self._decode_utf16(content[start:end])
                 self._add_text_chapter(titles[i] if i < len(titles) else None, text,
-                                       f'第{i + 1}章')
+                                       auto_title("book.chapter_n", count=i + 1))
 
         self._finish()
 
@@ -216,7 +217,8 @@ class UmdReader(BaseReader):
                 break
             title = self._decode_utf16(data[position:position + length])
             position += length
-            titles.append(title or f'第{len(titles) + 1}章')
+            # 标题表里没写标题时留空，交给 _add_chapter 生成「第 N 章」
+            titles.append(title)
 
         return titles
 

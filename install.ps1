@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    EpubNovelMaster 环境安装脚本（PowerShell 版）。
+    NovelMaster 环境安装脚本（PowerShell 版）。
 
 .DESCRIPTION
     一键准备开发/打包环境：
@@ -321,7 +321,7 @@ function Test-InstalledModules {
 # ---------------- 主流程 ----------------
 
 Write-Host '========================================' -ForegroundColor DarkGray
-Write-Host 'EpubNovelMaster - 环境安装脚本 (PowerShell)' -ForegroundColor DarkGray
+Write-Host 'NovelMaster - 环境安装脚本 (PowerShell)' -ForegroundColor DarkGray
 Write-Host '========================================' -ForegroundColor DarkGray
 Write-Host ''
 

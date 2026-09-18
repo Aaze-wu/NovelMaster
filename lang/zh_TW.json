@@ -1,0 +1,288 @@
+{
+  "lang": {
+    "name": "繁體中文",
+    "code": "zh_TW"
+  },
+  "app": {
+    "name": "NovelMaster"
+  },
+  "common": {
+    "error": "錯誤",
+    "warning": "警告",
+    "success": "成功",
+    "info": "提示",
+    "ok": "確定",
+    "cancel": "取消",
+    "close": "關閉",
+    "reset_default": "還原預設",
+    "reset_all_default": "全部還原預設",
+    "unbound": "未綁定",
+    "dash": "—",
+    "list_separator": "、",
+    "unknown": "未知",
+    "theme_file_filter": "主題檔案 (*.json)",
+    "label_with_keys": "{label}（{keys}）"
+  },
+  "window": {
+    "title_with_author": "{title}（{author}） - {app}"
+  },
+  "menu": {
+    "file": "檔案",
+    "open_file": "開啟檔案",
+    "open_folder": "開啟資料夾",
+    "recent_files": "最近開啟的檔案",
+    "continue_reading": "繼續閱讀...",
+    "exit": "結束",
+    "read": "閱讀",
+    "previous_chapter": "上一章",
+    "next_chapter": "下一章",
+    "goto_chapter": "跳到章節...",
+    "chapter_start": "跳到章首",
+    "chapter_end": "跳到章尾",
+    "settings": "設定",
+    "theme": "主題",
+    "theme_light": "淺色主題",
+    "theme_dark": "深色主題",
+    "theme_import": "匯入主題",
+    "theme_export": "匯出主題",
+    "theme_generator": "主題產生器",
+    "font_settings": "字型設定",
+    "font_increase": "字型增大",
+    "font_decrease": "字型減小",
+    "restore_scroll": "記住章內閱讀位置",
+    "shortcut_settings": "快捷鍵設定",
+    "language": "語言",
+    "help": "說明",
+    "about": "關於"
+  },
+  "toolbar": {
+    "main": "主工具列",
+    "open_file": "開啟檔案",
+    "continue_reading": "繼續閱讀",
+    "sidebar_show": "顯示章節清單",
+    "sidebar_hide": "隱藏章節清單",
+    "previous_chapter": "上一章",
+    "next_chapter": "下一章"
+  },
+  "sidebar": {
+    "chapter_list": "章節清單",
+    "toggle_show": "顯示",
+    "toggle_hide": "隱藏",
+    "progress": "閱讀進度: {percent}%"
+  },
+  "dialog": {
+    "open_file": "開啟檔案",
+    "open_folder": "選擇資料夾",
+    "import_theme": "匯入主題",
+    "export_theme": "匯出主題",
+    "goto_chapter": "跳到章節",
+    "goto_chapter_prompt": "請輸入章節序號（1 - {total}）：",
+    "continue_reading": "繼續閱讀 - {app}",
+    "theme_generator": "主題產生器",
+    "shortcut_settings": "快捷鍵設定"
+  },
+  "filter": {
+    "supported": "支援的檔案",
+    "ebooks": "電子書檔案",
+    "documents": "文字文件",
+    "archives": "壓縮檔",
+    "all_files": "所有檔案"
+  },
+  "msg": {
+    "unsupported_format": "不支援的檔案格式: {extension}\n\n支援的格式: {supported}",
+    "cannot_open_file": "無法開啟檔案",
+    "load_file_failed": "載入檔案失敗: {error}",
+    "load_folder_failed": "載入資料夾失敗: {error}",
+    "no_supported_files": "資料夾中沒有支援的檔案",
+    "no_book_opened": "還沒有開啟任何書籍。",
+    "file_missing": "檔案不存在",
+    "file_missing_detail": "{path}\n\n檔案可能已被移動或刪除。",
+    "no_displayable_content": "檔案中沒有可顯示的內容。",
+    "no_displayable_content_folder": "無法讀取該檔案，或檔案中沒有可顯示的內容。",
+    "theme_import_success": "主題匯入成功",
+    "theme_import_failed": "主題匯入失敗",
+    "theme_import_error": "匯入主題失敗: {error}",
+    "theme_export_success": "主題匯出成功",
+    "theme_export_error": "匯出主題失敗: {error}",
+    "theme_create_success": "主題建立成功",
+    "theme_create_failed": "主題建立失敗"
+  },
+  "about": {
+    "title": "關於",
+    "version": "版本: {version}",
+    "author": "作者: {author}",
+    "description": "一款功能強大的小說閱讀器，支援多種格式與豐富的自訂選項。",
+    "features": "功能特色:",
+    "feature_formats": "支援 {formats} 檔案格式",
+    "feature_folder": "支援資料夾模式閱讀（可跨檔案連續翻章）",
+    "feature_autosave": "自動儲存閱讀記錄",
+    "feature_theme": "主題切換與自訂",
+    "feature_i18n": "多語言支援",
+    "feature_shortcuts": "可自訂的快捷鍵",
+    "feature_ui": "現代化的使用者介面"
+  },
+  "shortcut": {
+    "group": {
+      "file": "檔案操作",
+      "nav": "閱讀導航",
+      "view": "介面控制",
+      "theme": "主題與設定"
+    },
+    "hint": "提示：Ctrl 組合鍵在視窗內任意位置皆可生效；方向鍵與翻頁鍵只在閱讀區取得焦點時生效。\n點選按鍵欄位後按下新快捷鍵即可改鍵，按 Delete 可清除該綁定。",
+    "default": "預設: {keys}",
+    "reset_tooltip": "把「{label}」還原為預設按鍵",
+    "conflict_title": "按鍵衝突",
+    "conflict_message": "以下按鍵被重複使用，請先改成不同的按鍵：\n\n{details}",
+    "conflict_line": "• {keys}：{names}",
+    "action": {
+      "file_open": {
+        "label": "開啟檔案",
+        "hint": "開啟 epub / txt 等書籍檔案"
+      },
+      "file_open_folder": {
+        "label": "開啟資料夾",
+        "hint": "以資料夾模式連續閱讀多本書"
+      },
+      "file_continue": {
+        "label": "繼續閱讀",
+        "hint": "開啟「繼續閱讀」面板"
+      },
+      "file_quit": {
+        "label": "結束",
+        "hint": "儲存進度並關閉程式"
+      },
+      "nav_prev_chapter": {
+        "label": "上一章",
+        "hint": "閱讀區取得焦點時生效（翻頁鍵）"
+      },
+      "nav_next_chapter": {
+        "label": "下一章",
+        "hint": "閱讀區取得焦點時生效（翻頁鍵）"
+      },
+      "nav_reader_prev": {
+        "label": "上一章（方向鍵）",
+        "hint": "閱讀區取得焦點時生效（←）"
+      },
+      "nav_reader_next": {
+        "label": "下一章（方向鍵）",
+        "hint": "閱讀區取得焦點時生效（→）"
+      },
+      "nav_goto_chapter": {
+        "label": "跳到章節",
+        "hint": "依目前檔案內的章節序號跳轉"
+      },
+      "nav_chapter_start": {
+        "label": "跳到章首",
+        "hint": "回到目前章節開頭"
+      },
+      "nav_chapter_end": {
+        "label": "跳到章尾",
+        "hint": "跳到目前章節結尾"
+      },
+      "view_toggle_sidebar": {
+        "label": "顯示/隱藏章節清單",
+        "hint": "收起或展開左側章節清單"
+      },
+      "view_font_inc": {
+        "label": "字型增大",
+        "hint": "閱讀區字型大小 +1"
+      },
+      "view_font_dec": {
+        "label": "字型減小",
+        "hint": "閱讀區字型大小 -1"
+      },
+      "view_font_dialog": {
+        "label": "字型設定",
+        "hint": "開啟字型選擇對話方塊"
+      },
+      "view_theme_light": {
+        "label": "淺色主題",
+        "hint": "切換到淺色主題"
+      },
+      "view_theme_dark": {
+        "label": "深色主題",
+        "hint": "切換到深色主題"
+      },
+      "view_shortcut_config": {
+        "label": "快捷鍵設定",
+        "hint": "開啟快捷鍵設定面板"
+      }
+    }
+  },
+  "book": {
+    "unknown_title": "未知書名",
+    "chapter_n": "第{count}章",
+    "section_n": "第{count}節",
+    "page_n": "第 {count} 頁",
+    "page_range": "第 {start} - {end} 頁",
+    "body": "正文",
+    "full_text": "全文",
+    "prologue": "序章",
+    "preface": "前言",
+    "empty_chapter": "（沒有可顯示的內容）"
+  },
+  "continue": {
+    "column_title": "書名",
+    "column_author": "作者",
+    "column_progress": "進度",
+    "column_chapters": "已讀",
+    "column_duration": "閱讀時間",
+    "column_last_read": "最後閱讀",
+    "column_file": "檔案",
+    "search_placeholder": "搜尋書名、作者或檔名…",
+    "open": "繼續閱讀",
+    "delete": "刪除記錄",
+    "clean": "清理失效記錄",
+    "close": "關閉",
+    "progress": "{reached}/{total}（{percent}%）",
+    "progress_chapter": "第 {count} 章",
+    "chapters_count": "{count} 章",
+    "summary_filtered": "篩選出 {count} 條",
+    "summary_total": "共 {count} 條記錄",
+    "summary_duration": "累計閱讀 {duration}",
+    "summary_missing": "其中 {count} 條檔案已不存在",
+    "missing_suffix": "（檔案已不存在）",
+    "menu_open": "繼續閱讀",
+    "menu_folder": "開啟所在資料夾",
+    "menu_copy": "複製完整路徑",
+    "menu_delete": "刪除記錄",
+    "tooltip_missing": "檔案不存在或已被移動，無法繼續閱讀",
+    "tooltip_file_path": "檔案路徑",
+    "tooltip_title": "書名",
+    "tooltip_author": "作者",
+    "tooltip_open_count": "開啟次數",
+    "tooltip_first_opened": "首次開啟",
+    "tooltip_last_opened": "最後開啟",
+    "tooltip_total_duration": "累計閱讀",
+    "tooltip_read_chapters": "已讀章節",
+    "tooltip_record_key": "記錄鍵",
+    "tooltip_saved_at": "記錄更新時間",
+    "tooltip_line": "{label}：{value}",
+    "err_no_path_title": "無法開啟",
+    "err_no_path": "這筆記錄裡沒有檔案路徑資訊。",
+    "err_missing_title": "檔案不存在",
+    "err_missing": "{path}\n\n檔案可能已被移動或刪除；如果確定不再需要，可以用「清理失效記錄」刪除這筆記錄。",
+    "delete_title": "刪除閱讀記錄",
+    "delete_body": "確定要刪除「{name}」的閱讀記錄嗎？\n\n只會刪除閱讀進度與統計，不會刪除書籍檔案。",
+    "delete_fallback_name": "這筆記錄",
+    "clean_title": "清理失效記錄",
+    "clean_none": "沒有失效的閱讀記錄。",
+    "clean_confirm": "有 {count} 筆記錄指向的檔案已經不存在，確定要全部清理嗎？",
+    "clean_done": "已清理 {count} 筆失效記錄。",
+    "duration_hours": "{hours} 小時 {minutes} 分",
+    "duration_minutes": "{minutes} 分 {seconds} 秒",
+    "duration_seconds": "{seconds} 秒"
+  },
+  "theme_editor": {
+    "title": "主題產生器",
+    "name_label": "主題名稱:",
+    "name_default": "自訂主題",
+    "choose_background": "選擇背景色",
+    "choose_foreground": "選擇前景色",
+    "choose_accent": "選擇強調色",
+    "background_label": "背景色:",
+    "foreground_label": "前景色:",
+    "accent_label": "強調色:",
+    "preview": "背景: {background}\n前景: {foreground}\n強調: {accent}"
+  }
+}

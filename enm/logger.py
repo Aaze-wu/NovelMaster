@@ -5,7 +5,8 @@ import sys
 import time
 from pathlib import Path
 
-from .constants import DATA_PATH, DEBUG_MODE, PROJECT_NAME, SAVE_PATH, VERSION
+from .constants import (DATA_PATH, DEBUG_MODE, MIGRATED_DATA_FROM, PROJECT_NAME,
+                        SAVE_PATH, VERSION)
 
 # 重定向输出时，避免个别字符无法编码导致 logging 报错
 for _stream in (sys.stdout, sys.stderr):
@@ -89,9 +90,11 @@ class Logger:
         self.logger.addHandler(fh)
 
         # 记录启动信息（单例，只会写一次）
-        self.logger.info(f"EpubNovelMaster 启动 - 版本: {VERSION}")
+        self.logger.info(f"{PROJECT_NAME} 启动 - 版本: {VERSION}")
         self.logger.info(f"调试模式: {DEBUG_MODE}")
         self.logger.info(f"数据目录: {DATA_PATH}")
+        if MIGRATED_DATA_FROM:
+            self.logger.info(f"已从旧数据目录迁移: {MIGRATED_DATA_FROM} -> {DATA_PATH}")
         self.logger.info(f"保存目录: {SAVE_PATH}")
 
     def log(self, message, level="INFO"):

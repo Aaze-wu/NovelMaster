@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    EpubNovelMaster 调试启动脚本（PowerShell 版，对应 run_debug.bat）。
+    NovelMaster 调试启动脚本（PowerShell 版，对应 run_debug.bat）。
 
 .DESCRIPTION
     等价于 .\run.ps1 -DebugMode，会向程序传入 --debug 参数以开启调试日志。

@@ -2,7 +2,7 @@
 chcp 65001 >nul
 
 echo ========================================
-echo EpubNovelMaster - Nuitka 打包脚本
+echo NovelMaster - Nuitka 打包脚本
 echo ========================================
 echo.
 
@@ -25,12 +25,12 @@ if %errorlevel% neq 0 (
     echo [成功] Nuitka 安装完成
 )
 
-echo [信息] 开始打包 EpubNovelMaster...
+echo [信息] 开始打包 NovelMaster...
 echo.
 
 REM 设置打包参数
-set "APP_NAME=EpubNovelMaster"
-set "MAIN_FILE=EpubNovelMaster.py"
+set "APP_NAME=NovelMaster"
+set "MAIN_FILE=NovelMaster.py"
 set "OUTPUT_DIR=dist"
 set "ICON_FILE=icon\icon.ico"
 
@@ -66,7 +66,7 @@ python -m nuitka ^
     --file-version=1.0.0 ^
     --product-version=1.0.0 ^
     --company-name="Aaze_wu" ^
-    --file-description="EpubNovelMaster - 现代化小说阅读器" ^
+    --file-description="NovelMaster - 现代化小说阅读器" ^
     --nofollow-import-to=*.tests ^
     --enable-plugin=pyqt5 ^
     --include-package=enm ^

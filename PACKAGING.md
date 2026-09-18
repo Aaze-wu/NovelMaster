@@ -1,6 +1,6 @@
-# EpubNovelMaster 打包指南
+# NovelMaster 打包指南
 
-本文档介绍如何使用 Nuitka 将 EpubNovelMaster 打包成独立的可执行文件。
+本文档介绍如何使用 Nuitka 将 NovelMaster 打包成独立的可执行文件。
 
 ## 📦 打包脚本说明
 
@@ -134,15 +134,15 @@
 
 ```text
 dist/
-└── EpubNovelMaster.exe
+└── NovelMaster.exe
 ```
 
 ### 独立目录模式
 
 ```text
 dist/
-└── EpubNovelMaster/
-    ├── EpubNovelMaster.exe
+└── NovelMaster/
+    ├── NovelMaster.exe
     ├── lang/           # 语言文件
     ├── icon/           # 图标文件
     └── *.dll           # 依赖库

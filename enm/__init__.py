@@ -1,4 +1,4 @@
-"""EpubNovelMaster 应用包。
+"""NovelMaster 应用包。
 
 模块划分::
 

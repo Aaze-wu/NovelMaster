@@ -4,13 +4,13 @@ chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 echo ========================================
-echo EpubNovelMaster - 高级打包脚本
+echo NovelMaster - 高级打包脚本
 echo ========================================
 echo.
 
 REM 基本配置
-set "APP_NAME=EpubNovelMaster"
-set "MAIN_FILE=EpubNovelMaster.py"
+set "APP_NAME=NovelMaster"
+set "MAIN_FILE=NovelMaster.py"
 set "ICON_FILE=icon\icon.ico"
 set "VERSION=1.0.0"
 set "COMPANY=Aaze_wu"

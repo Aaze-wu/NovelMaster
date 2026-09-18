@@ -1,6 +1,7 @@
 """DOCX（Word 文档）阅读器，依赖 python-docx（懒加载）。"""
 
-from .base import (BaseReader, ReaderError, escape_html, is_docx_heading,
+from .base import (BaseReader, ReaderError, auto_title, escape_html,
+                   is_docx_heading,
                    local_name)
 from .images import MAX_IMAGE_BYTES, guess_mime, to_data_uri
 
@@ -33,10 +34,11 @@ class DocxReader(BaseReader):
         heading_indices = [i for i, para in enumerate(paragraphs) if is_docx_heading(para)]
 
         if not heading_indices:
-            self._add_chapter(None, self._paragraphs_to_html(paragraphs), '全文')
+            self._add_chapter(None, self._paragraphs_to_html(paragraphs),
+                              auto_title("book.full_text", default='全文'))
         else:
             if heading_indices[0] > 0:
-                self._add_chapter('前言',
+                self._add_chapter(auto_title("book.preface", default='前言'),
                                   self._paragraphs_to_html(paragraphs[:heading_indices[0]]))
 
             for position, start in enumerate(heading_indices):
@@ -44,7 +46,8 @@ class DocxReader(BaseReader):
                     else len(paragraphs)
                 title = paragraphs[start].text.strip()
                 content = self._paragraphs_to_html(paragraphs[start + 1:end])
-                self._add_chapter(title, content, f'第{position + 1}章')
+                self._add_chapter(title, content,
+                                  auto_title("book.chapter_n", count=position + 1))
 
         tables_html = self._tables_to_html(document)
         if tables_html:

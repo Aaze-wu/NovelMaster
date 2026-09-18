@@ -1,4 +1,4 @@
-# EpubNovelMaster - 现代化小说阅读器
+# NovelMaster - 现代化小说阅读器
 
 一个功能强大的小说阅读器，支持多种格式和丰富的自定义选项。
 
@@ -13,7 +13,9 @@
 - 📊 **阅读统计**: 记录打开次数、阅读时长、已读章节数与最远章节
 - 📍 **位置记忆**: 重新打开书籍时回到上次的章节，并可记住章内滚动位置
 - 🎨 **主题切换**: 内置浅色和深色主题，支持自定义主题
-- 🌍 **多语言支持**: 内置简体中文和英语
+- ⌨️ **自定义快捷键**: 全部功能可改键（含方向键翻章），自动检测按键冲突
+- 🌍 **多语言支持**: 内置简体中文、繁体中文和英语，切换后界面立即刷新（无需重启）；
+  往 `lang/` 里放一个 JSON 文件就能自动多出一种语言
 - 🔧 **高度可定制**: 字体、颜色、布局等均可自定义
 - 🖥️ **现代化界面**: 基于 PyQt5 的现代化 GUI
 
@@ -94,7 +96,7 @@ pip install PyQt5 PyQtWebEngine ebooklib lxml Pillow python-docx chardet qdarkst
 ### 启动程序
 
 ```bash
-python EpubNovelMaster.py
+python NovelMaster.py
 ```
 
 或者在 Windows 上双击 `run.bat`（调试模式使用 `run_debug.bat`）。
@@ -121,6 +123,44 @@ PowerShell 版本与其参数完全对应：
 5. **主题切换**: 点击"视图" → "主题"，选择喜欢的主题
 6. **字体设置**: 点击"视图" → "字体设置"，调整字体和大小
 7. **位置记忆**: "视图" → "记住章内阅读位置"可开关章内滚动位置的记忆
+8. **快捷键**: 点击"视图" → "快捷键设置"（`Ctrl+Shift+K`）可修改任意功能的按键
+9. **语言切换**: 点击"视图" → "语言"，选择"简体中文 / English"，界面立即刷新
+
+### 快捷键
+
+内置一套默认按键，均可在"视图" → "快捷键设置"里修改：
+
+| 功能 | 默认按键 | 生效范围 |
+| --- | --- | --- |
+| 打开文件 | `Ctrl+O` | 窗口内 |
+| 打开文件夹 | `Ctrl+Shift+O` | 窗口内 |
+| 继续阅读 | `Ctrl+R` | 窗口内 |
+| 退出 | `Ctrl+Q` | 窗口内 |
+| 上一章（翻页键） | `PgUp` | 阅读区 |
+| 下一章（翻页键） | `PgDn` | 阅读区 |
+| 上一章（方向键） | `←` | 阅读区 |
+| 下一章（方向键） | `→` | 阅读区 |
+| 转到章节 | `Ctrl+G` | 窗口内 |
+| 跳到章首 | `Ctrl+Home` | 窗口内 |
+| 跳到章尾 | `Ctrl+End` | 窗口内 |
+| 显示/隐藏章节列表 | `Ctrl+B` | 窗口内 |
+| 字体增大 | `Ctrl+=` | 窗口内 |
+| 字体减小 | `Ctrl+-` | 窗口内 |
+| 字体设置 | `Ctrl+Shift+F` | 窗口内 |
+| 浅色主题 | `Ctrl+Shift+L` | 窗口内 |
+| 深色主题 | `Ctrl+Shift+D` | 窗口内 |
+| 快捷键设置 | `Ctrl+Shift+K` | 窗口内 |
+
+- **窗口内**：在章节列表、工具栏、阅读区任意位置都能触发（如 `Ctrl+O`）。
+- **阅读区**：只在阅读区获得焦点时生效，且方向键直接用来翻章，
+  在该区域内不再移动光标；不会在章节列表或输入框里抢按键。
+  长按不会连续翻章，避免一不小心翻掉几十章。
+- `Ctrl+Home` / `Ctrl+End` 优先用于"跳到章首/章尾"，不再是 `QTextEdit`
+  自带的"文档首/文档尾"。
+- 改键面板里点击输入框后直接按组合键即可录制，按 `Delete` 可清空（即不绑定按键）；
+  有重复按键时会提示冲突并拒绝保存，每行右侧的"恢复默认"可单独回退。
+- 绑定保存在 `config.json` 的 `shortcuts` 字段，只记录与默认值不同的项，
+  下次启动自动生效。
 
 ## 主题功能
 
@@ -142,19 +182,65 @@ PowerShell 版本与其参数完全对应：
 
 ## 多语言支持
 
-程序支持简体中文和英语，可在"视图" → "语言"中切换。
+程序内置简体中文、繁体中文与英语，可在"视图" → "语言"中切换，**切换后界面立即刷新**
+（无需重启）。当前语言会写入 `config.json` 的 `language` 字段，下次启动自动沿用。
+
+语言菜单按**语系相邻**排序：同语系的语言排在一起，内置语言排在同语系前面，即
+简体中文 / 繁體中文 / English。
+
+覆盖范围：
+
+- 菜单、工具栏、按钮、侧边栏等全部界面静态文案；
+- 运行时提示（文件格式不支持、加载失败、继续阅读面板、快捷键设置、主题生成器等）；
+- 程序自动生成的占位标题（"第 N 章" / "Chapter N"、"正文" / "Body"、"全文" / "Full Text" 等），
+  切换语言时会就地重生成，不会重新解析书籍；
+- 不翻译书籍正文、章节标题（来自文件内容）与日志（日志固定中文，便于排查）。
+
+### 语言文件与自动发现
+
+翻译文件是嵌套 JSON（`lang/zh_CN.json`、`lang/zh_TW.json`、`lang/en_US.json`），
+用点号路径取词。**新增一种语言不需要改代码**：把 `lang/xx_XX.json` 放进 `lang/` 目录，
+在文件开头的 `lang.name` 里写上该语言自己的名字，启动时会被自动扫描并出现在语言菜单里：
+
+```json
+{
+  "lang": { "name": "日本語", "code": "ja_JP" },
+  "app": { "name": "NovelMaster" },
+  "common": { "ok": "OK", ... }
+}
+```
+
+自动发现只登记语言，不会补齐翻译：缺键会逐级回退（见下文），所以可以先把文件放进去，
+再慢慢翻译。语言文件读不出来（坏 JSON）时会跳过该语言并写一条日志，不影响启动；
+没写 `lang.name` 时菜单里用语言代码兜底。
+
+代码中通过 `enm.i18n` 统一访问：
+
+```python
+from enm import i18n
+
+i18n.t("menu.open_file")                       # 打开文件 / 開啟檔案 / Open File
+i18n.t("sidebar.progress", percent="42.0")      # 阅读进度: 42.0%
+i18n.set_language("zh_TW")                     # 切换语言
+i18n.available_languages()                      # {"zh_CN": "简体中文", "zh_TW": "繁體中文", "en_US": "English"}
+```
+
+缺失的语言键会回退到默认语言，再回退到调用处传入的 `default`，最后返回键名本身
+（同时记入 `manager().missing_keys`，便于发现漏翻）。
 
 ## 文件结构
 
 ```text
 Reader-Equb/
-├── EpubNovelMaster.py        # 程序入口（仅负责启动主窗口）
+├── NovelMaster.py             # 程序入口（仅负责启动主窗口）
 ├── enm/                      # 主程序包
 │   ├── constants.py          # 路径与全局常量
+│   ├── i18n.py               # 多语言入口（t / has / set_language）
 │   ├── logger.py             # 日志工具
+│   ├── shortcuts.py          # 快捷键注册表与绑定存储
 │   ├── managers/             # 配置 / 主题 / 语言 / 阅读进度管理
 │   ├── readers/              # 各格式阅读器与工厂
-│   └── ui/                   # 主窗口、继续阅读面板与主题生成器对话框
+│   └── ui/                   # 主窗口、继续阅读面板、快捷键设置与主题生成器对话框
 ├── run.bat / run.ps1         # 启动脚本
 ├── run_debug.bat / run_debug.ps1   # 调试启动脚本
 ├── install.bat / install.ps1       # 环境安装（自动建 venv + 镜像源装依赖）
@@ -164,9 +250,11 @@ Reader-Equb/
 ├── requirements.txt          # 依赖列表
 ├── README.md                 # 说明文档
 ├── PACKAGING.md              # 打包说明
-├── lang/                     # 语言文件目录
-│   ├── zh_CN.json            # 简体中文翻译
-│   └── en_US.json            # 英语翻译
+├── lang/                     # 语言文件目录（嵌套 JSON，点号路径取值）
+│   ├── zh_CN.json            # 简体中文（默认语言）
+│   ├── zh_TW.json            # 繁体中文（台湾用语）
+│   ├── en_US.json            # 英语
+│   └── *.json                # 放进来的语言文件会被自动发现并出现在语言菜单里
 ├── icon/                     # 图标目录
 │   └── icon.ico              # 程序图标
 └── InstallerMakerScript/     # Inno Setup 安装包脚本
@@ -176,16 +264,21 @@ Reader-Equb/
 
 程序配置和阅读记录存储在系统应用数据目录：
 
-- **Windows**: `%APPDATA%\EpubNovelMaster\`
-- **macOS**: `~/Library/Application Support/EpubNovelMaster/`
-- **Linux**: `~/.config/EpubNovelMaster/`
+- **Windows**: `%APPDATA%\NovelMaster\`
+- **macOS**: `~/Library/Application Support/NovelMaster/`
+- **Linux**: `~/.config/NovelMaster/`
 
 存储内容包括：
 
-- `config.json`: 程序配置
+- `config.json`: 程序配置（含 `language` 界面语言、`shortcuts` 快捷键绑定）
 - `themes/`: 自定义主题文件
 - `saves/`: 阅读进度记录
 - 日志文件
+
+> 项目名曾为 `EpubNovelMaster`，因此旧版本的数据目录是 `%APPDATA%\EpubNovelMaster\`。
+> 启动时若发现旧目录，程序会把它**逐项合并**进来（配置、自定义主题与阅读记录一并保留；
+> 新旧目录出现同名文件时以新目录为准），并写一条“已从旧数据目录迁移”的日志；
+> 搬动失败（跨盘、被占用）时只是跳过该项，程序照常在当前目录下工作。
 
 `saves/` 下每个 JSON 记录用**文件内容哈希**（整文件 MD5）作为标识，而不是文件路径，
 因此移动、重命名书籍，或同一本书存在多个副本时，都能继续读到原来的进度：
@@ -244,16 +337,18 @@ Reader-Equb/
 
 ### 模块结构
 
-项目已按职责拆分为 `enm` 包，入口文件 `EpubNovelMaster.py` 只负责创建 `QApplication`
+项目已按职责拆分为 `enm` 包，入口文件 `NovelMaster.py` 只负责创建 `QApplication`
 并显示主窗口。
 
 ```text
 enm/
 ├── constants.py          # 版本号、数据目录、语言/图标路径等全局常量
+├── i18n.py               # 多语言入口（t / has / set_language，封装 LanguageManager）
 ├── logger.py             # Logger 单例，同时输出到控制台与日志文件
+├── shortcuts.py          # 快捷键定义（ACTION_DEFS）与 ShortcutManager 绑定存储
 ├── managers/
 │   ├── config.py         # ConfigManager：程序配置读写
-│   ├── language.py       # LanguageManager：多语言翻译
+│   ├── language.py       # LanguageManager：语言文件加载、点号取值、翻译查询
 │   ├── progress.py       # ReadingProgressManager：阅读进度、阅读统计与记录清理
 │   └── theme.py          # ThemeManager：主题的加载/保存/导入导出
 ├── readers/
@@ -271,10 +366,49 @@ enm/
 │   ├── factory.py        # 扩展名注册表与 create_reader() 工厂
 │   └── folder.py         # FolderReader：文件夹批量阅读
 └── ui/
-    ├── main_window.py    # EpubNovelMaster 主窗口
+    ├── main_window.py    # NovelMaster 主窗口
     ├── continue_dialog.py  # ContinueReadingDialog「继续阅读」面板
+    ├── shortcut_dialog.py  # ShortcutSettingsDialog 快捷键设置面板
     └── theme_dialog.py   # ThemeGeneratorDialog 主题生成器
 ```
+
+### 快捷键实现要点
+
+- 所有可改键功能集中在 `enm/shortcuts.py` 的 `ACTION_DEFS` 里定义，
+  包含动作 id、显示名、分组、默认按键、生效范围与说明；
+  新增功能时只需在这里加一条，改键面板与主窗口会自动包含它。
+- 窗口级快捷键用 `QAction` + `Qt.WindowShortcut` 实现，菜单里会自动显示按键；
+  阅读区级快捷键挂在阅读区上，并由主窗口 `eventFilter` 在
+  `QEvent.KeyPress` 时派发（自动重复事件会被忽略，长按不会连续翻章）。
+- `QTextEdit` 会抢先处理 `Ctrl+Home` / `Ctrl+End`、方向键等按键，
+  因此 `eventFilter` 在 `QEvent.ShortcutOverride` 阶段把窗口级按键
+  `ignore()` 放行，保证快捷键始终优先于控件自带行为。
+- 默认按键用 Qt 的可移植键名（翻页键是 `PgUp` / `PgDown`，
+  写成 `PageUp` / `PageDown` 会解析失败）；
+  `invalid_definitions()` / `check_defaults()` 会在启动时自检并写日志提醒。
+
+### 多语言实现要点
+
+- **取词入口**：所有界面代码统一 `from .. import i18n`，
+  用 `i18n.t("menu.open_file")` 这类点号键取词；语言文件是嵌套 JSON，
+  `LanguageManager` 先按扁平键、再按点号路径查找，找不到时按
+  “当前语言 → 默认语言（`zh_CN`）→ 调用方 `default` → 键名本身” 逐级回退。
+- **切换语言**：`i18n.set_language()` 只改当前语言与文件记录；
+  界面刷新由主窗口负责 —— 构造控件时用 `bind_text(widget, key)` /
+  `make_action(key, ...)` / `add_menu(parent, key)` 把「控件 + 语言键」登记到
+  `_text_bindings`，`retranslate_ui()` 遍历这张表重新写文案，
+  所以新增控件只要记得 `bind_text` 就会自动跟随语言。
+  语言键还可以是**函数**，用于「显示 / 隐藏章节列表」这类随状态变化的文案。
+- **动作名与快捷键**：动作的业务 id（`file.open`）与语言键（`menu.open_file`）
+  分开，`enm.shortcuts` 用 `action_label_key()` / `action_hint_key()` 把两者关联，
+  并提供 `label_of()` / `hint_of()` / `group_label()`，让快捷键、工具提示
+  不需要写死中文。
+- **自动生成的标题**：阅读器不再拼中文标题，而是登记
+  `auto_title("book.chapter_n", count=n)` 规格（键 + 参数），
+  由 `BaseReader.retranslate_titles()` 按当前语言重渲染，
+  切换语言时无需重新解析书籍；书籍自身的标题与正文不参与翻译。
+- **日志**：`enm/logger.py` 固定输出中文（开发排查更方便），
+  且刻意不在模块级导入 `enm.i18n`，避免启动阶段的循环依赖。
 
 ### 阅读器接口
 
@@ -352,6 +486,64 @@ html = inline_images(html, resolve)
 欢迎提交 Issue 和 Pull Request！
 
 ## 更新日志
+
+### v1.3.1
+
+- 补全多语言支持：菜单、工具栏、侧边栏、继续阅读面板、快捷键设置、主题生成器
+  等原先硬编码中文的界面文案全部改走 `enm.i18n`
+- 新增 `enm/i18n.py` 全局入口（`t()` / `has()` / `set_language()` /
+  `available_languages()`），语言文件改为嵌套 JSON + 点号路径取值，
+  `lang/zh_CN.json` / `lang/zh_TW.json` / `lang/en_US.json` 各 216 个键，键名与占位符一一对应
+- 切换语言立即生效（不再提示"下次启动生效"）：主窗口用文本绑定表
+  （`bind_text` / `make_action` / `add_menu` / `retranslate_ui`）统一刷新，
+  侧边栏"显示/隐藏"、工具栏"显示章节列表/隐藏章节列表"这类随状态变化的文案也会同步更新
+- 自动编号的章节标题（"第 N 章"、"正文"、"全文"等）改为在阅读器中登记
+  "语言键 + 参数"规格，切换语言时由 `retranslate_titles()` 就地重生成，
+  并保留当前章内阅读位置；书籍自身的章节标题与正文不参与翻译
+- 修复启动时语言设置失效的问题：此前 `LanguageManager` 被实例化但从未参与界面渲染，
+  语言菜单实际不生效；现在启动时按 `config.json` 的 `language` 初始化
+- 修复切换语言时日志重复：原先 `LanguageManager.set_language()` 与
+  `NovelMaster.change_language()` 各写一条几乎相同的日志；现在统一由
+  `LanguageManager` 输出一条（含语言代码），重复设置同一种语言不再写日志
+- 日志语言保持中文（开发排查用），不随界面语言变化
+- 新增繁体中文（`lang/zh_TW.json`）：按台湾用语翻译（档案 / 资料夹 / 设定 /
+  开启 / 汇入汇出 / 储存 / 搜寻 / 使用者介面 / 对话方块 / 快捷键 等）
+- 新增语言文件自动发现：启动时扫描 `lang/*.json`，读 `lang.name` 登记语言，
+  内置语言之外的按语系插到同语系旁边（简体中文 / 繁體中文 / English），
+  新增语言只需放一个 JSON 文件，不必改代码；语言文件坏 JSON 时跳过该语言并写一条日志，
+  缺 `lang.name` 时用语言代码兜底
+- 项目名称由 "EpubNovelMaster" 改为 "NovelMaster"：入口脚本重命名为
+  `NovelMaster.py`、主窗口类改为 `NovelMaster`、打包（`NovelMaster.dist` /
+  `NovelMaster.exe`）与安装包脚本（`NovelMaster-Release.iss`）同步更新；
+  数据目录随之变为 `%APPDATA%\NovelMaster\`，启动时会把旧目录的数据逐项合并过来
+  （同名文件以新目录为准，不覆盖新产生的数据）
+- 修复深色主题下部分文字不随主题变色（含进度条上方的"阅读进度"标签）：Qt 样式表
+  只会命中写了选择器的控件，`QMainWindow { color }` 不会继承给子控件，`QLabel`、
+  菜单栏、工具栏这些没写规则的控件一直是 Qt 默认的浅底黑字，深色主题下黑字压在
+  深色底上几乎不可见；现在在 `apply_theme()` 里补齐规则——
+  `#sidebar QLabel`（侧栏"章节列表"与"阅读进度"标签）、`QProgressBar` 及
+  `QProgressBar::chunk`（槽底色跟随主题背景色、文字跟随主题前景色、填充用主题强调色）、
+  `QMenuBar` / `QMenu` / `QToolBar` / `QToolButton`（Windows 样式会自己画一块浅色
+  菜单栏底，必须用规则覆盖）；标签规则用 `#sidebar` 限定范围，避免样式表顺着对象树
+  渗进对话框把对话框文字刷成白字；强调色上的文字色由 `color_on_accent()` 计算
+  （浅强调色配深字、深强调色配白字），浅色 / 深色 / 自定义主题都会随主题变色
+
+### v1.3.0
+
+- 新增快捷键系统：18 项功能均可自定义按键（`enm/shortcuts.py` 统一注册，
+  新增"视图" → "快捷键设置"面板，`Ctrl+Shift+K`）
+- 键位分两级作用域：窗口内快捷键（`Ctrl+O` 等）与阅读区快捷键（`←` / `→` /
+  `PgUp` / `PgDown`）；后者只在阅读区聚焦时生效，不会在章节列表、输入框里抢键
+- 阅读区支持 `←` / `→` 直接翻章，长按不连续翻章；
+  `Ctrl+Home` / `Ctrl+End` 改为"跳到章首/章尾"
+- 新增"阅读"菜单：上一章 / 下一章 / 转到章节（`Ctrl+G`）/ 跳到章首 / 跳到章尾
+- 新增字号调节：字体增大（`Ctrl+=`）、字体减小（`Ctrl+-`），范围限制在 8~48，
+  调整后立即生效并持久化
+- 改键面板按分组展示功能名、当前按键与默认值，支持单项/全部恢复默认；
+  检测到重复按键时提示冲突并拒绝保存
+- 绑定写入 `config.json` 的 `shortcuts` 字段，只保存与默认值不同的项，
+  清空绑定（不绑定按键）同样会保存
+- 工具栏与菜单的提示文本会带上当前快捷键（如"下一章（PgDown）"），改键后自动刷新
 
 ### v1.2.1
 

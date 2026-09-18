@@ -1,10 +1,10 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    EpubNovelMaster 基本打包脚本（PowerShell 版，对应 build.bat）。
+    NovelMaster 基本打包脚本（PowerShell 版，对应 build.bat）。
 
 .DESCRIPTION
-    使用 Nuitka 将 EpubNovelMaster 打包为单文件可执行程序
+    使用 Nuitka 将 NovelMaster 打包为单文件可执行程序
     （--standalone --onefile）。脚本会自动检测 Nuitka，缺失时尝试安装。
 
 .PARAMETER Python
@@ -80,12 +80,12 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 try { $OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
 $ProjectRoot = $PSScriptRoot
-$AppName = 'EpubNovelMaster'
+$AppName = 'NovelMaster'
 $MainFileName = "$AppName.py"
 $MainFile = Join-Path $ProjectRoot $MainFileName
 $IconFile = Join-Path $ProjectRoot 'icon\icon.ico'
 $OutputDirPath = Join-Path $ProjectRoot $OutputDir
-$DefaultDescription = 'EpubNovelMaster - 现代化小说阅读器'
+$DefaultDescription = 'NovelMaster - 现代化小说阅读器'
 
 function Write-Info { param([string]$Message) Write-Host "[信息] $Message" -ForegroundColor Cyan }
 function Write-Ok { param([string]$Message) Write-Host "[成功] $Message" -ForegroundColor Green }
@@ -374,7 +374,7 @@ function Read-ProjectMetadata {
 }
 
 Write-Host '========================================' -ForegroundColor DarkGray
-Write-Host 'EpubNovelMaster - Nuitka 打包脚本 (PowerShell)' -ForegroundColor DarkGray
+Write-Host 'NovelMaster - Nuitka 打包脚本 (PowerShell)' -ForegroundColor DarkGray
 Write-Host '========================================' -ForegroundColor DarkGray
 Write-Host ''
 

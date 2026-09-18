@@ -4,7 +4,7 @@ import base64
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from .base import (BaseReader, ReaderError, decode_bytes, escape_html,
+from .base import (BaseReader, ReaderError, auto_title, decode_bytes, escape_html,
                    local_name, strip_tags, xml_text)
 from .images import (MAX_IMAGE_BYTES, guess_mime, looks_like_image,
                      to_data_uri)
@@ -103,8 +103,10 @@ class Fb2Reader(BaseReader):
                 else:
                     html = self._render_element(child)
                     if html:
-                        self._add_chapter(None, html,
-                                          f'第{len(self.chapters) + 1}节')
+                        self._add_chapter(
+                            None, html,
+                            auto_title("book.section_n",
+                                       count=len(self.chapters) + 1))
 
     def _process_section(self, section):
         """递归处理 <section>：自身作为一章，子 section 继续展开"""
@@ -126,7 +128,9 @@ class Fb2Reader(BaseReader):
 
         content = ''.join(pieces)
         if title or strip_tags(content):
-            self._add_chapter(title, content, f'第{len(self.chapters) + 1}节')
+            self._add_chapter(
+                title, content,
+                auto_title("book.section_n", count=len(self.chapters) + 1))
 
         for subsection in subsections:
             self._process_section(subsection)
