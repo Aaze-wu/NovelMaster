@@ -24,6 +24,12 @@ class ConfigManager:
             # 章节列表宽度：拖动主窗口里的分隔条后写回这里（v1.3.3 之前是写死的）
             "sidebar_width": 300,
             "restore_scroll_position": True,
+            # 同名书籍的不同版本（重新导出 / 追加章节）共用同一份阅读记录：
+            # 打开时用书名 + 作者 + 章节标题指纹认书，认出同一本就自动合并且不弹窗；
+            # 只有书名对得上、章节结构对不上（或记录太老没有指纹）时才问一次。
+            # 用户回答「不再询问」的文件对会记在 progress_share_ignored 里。
+            "share_progress_versions": True,
+            "progress_share_ignored": [],
             # 以下两个开关都默认关闭：
             # * titlebar_follow_theme —— 让 Windows 原生标题栏跟着主题的 titlebar
             #   颜色走（Win11 22H2+ 生效；更老的系统只切深浅模式）

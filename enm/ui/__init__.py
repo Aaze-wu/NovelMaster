@@ -1,5 +1,6 @@
 """界面层：主窗口与对话框。"""
 
+from .book_merge_dialog import BookMergeDialog
 from .chapter_tree import ChapterTree
 from .continue_dialog import ContinueReadingDialog
 from .main_window import NovelMaster
@@ -12,7 +13,8 @@ from .titlebar import (apply_dark_mode, apply_titlebar_theme, available,
                        hide_border, reset_titlebar_theme,
                        supports_caption_color)
 
-__all__ = ["ChapterTree", "ContinueReadingDialog", "NovelMaster",
+__all__ = ["BookMergeDialog", "ChapterTree", "ContinueReadingDialog",
+           "NovelMaster",
            "ShortcutSettingsDialog", "ThemeEditorDialog", "ThemePreviewWidget",
            "ThemeManagerDialog", "build_style_sheet", "build_palette",
            "color_on_accent", "SPLITTER_HANDLE_WIDTH", "apply_titlebar_theme",

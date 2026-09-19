@@ -17,13 +17,17 @@ from ..constants import (AUTHOR_NAME, DEBUG_MODE, ICON_PATH, PROJECT_NAME,
                          VERSION)
 from ..managers import (ConfigManager, DEFAULT_THEME, ReadingProgressManager,
                         ThemeManager, format_timestamp, is_dark,
-                        split_file_key)
+                        record_covers_file, record_file_key, split_file_key)
+from ..managers.book_identity import (FINGERPRINT_SAMPLE, build_identity,
+                                      chapter_index_in,
+                                      normalise_chapter_title)
 from ..readers import (SUPPORTED_EXTENSIONS, FolderReader, ReaderError,
                        build_open_file_filter, create_reader,
                        format_chapter_html, supported_extensions_text)
 from ..shortcuts import (ACTION_DEFS, DEFS_BY_ID, READER, WINDOW,
                          ShortcutManager, event_key_sequence, key_sequence,
                          label_of)
+from .book_merge_dialog import BookMergeDialog
 from .chapter_tree import ChapterTree
 from .continue_dialog import ContinueReadingDialog
 from .dialog_help_button import install as install_dialog_help_filter
@@ -51,6 +55,9 @@ SIDEBAR_WIDTH_MAX = 720
 READER_WIDTH_MIN = 280
 # 拖动分隔条会连着发 splitterMoved，等手停下来再写盘（毫秒）
 SIDEBAR_WIDTH_SAVE_DELAY = 400
+
+# 「同一个文件不再询问是否共用进度」最多记这么多条（只当备忘，不参与逻辑）
+MAX_SHARE_IGNORED = 100
 
 
 def clamp_sidebar_width(value):
@@ -136,6 +143,12 @@ class NovelMaster(QMainWindow):
         self._stats = self.empty_stats()
         self._focus_started_at = None
         self._pending_scroll_percent = 0.0
+
+        # 当前书籍的身份签名（书名 / 作者 / 章节标题指纹）与实际使用的记录键，
+        # 打开书籍时由 resolve_reading_record() 算一次；缓存是为了让保存时
+        # 不必重复解析章节标题
+        self._book_identity = {}
+        self._progress_record_key = ""
         
         # 设置窗口图标
         self.set_window_icon()
@@ -474,6 +487,14 @@ class NovelMaster(QMainWindow):
         self.typography_action.setChecked(
             self.config_manager.get("typography_follow_theme", False))
         settings_menu.addAction(self.typography_action)
+
+        # 同名书籍的不同版本（重新导出 / 追加新章节）共用同一份阅读记录
+        self.share_progress_action = self.make_action(
+            "menu.share_progress", self.toggle_share_progress)
+        self.share_progress_action.setCheckable(True)
+        self.share_progress_action.setChecked(
+            self.config_manager.get("share_progress_versions", True))
+        settings_menu.addAction(self.share_progress_action)
         
         # 快捷键设置
         self.make_action("menu.shortcut_settings", self.open_shortcut_dialog,
@@ -1329,24 +1350,26 @@ class NovelMaster(QMainWindow):
             self.recent_menu.addAction(action)
     
     def progress_key(self):
-        """当前书籍的阅读记录键（文件按内容哈希，文件夹按路径哈希）"""
+        """当前书籍实际使用的阅读记录键
+
+        一般是按文件内容（文件夹按路径）哈希出来的键；认出书本身份之后会换成
+        ``book:<book_id>``，让同一本书的不同版本共用同一份记录与统计。
+        """
         if not self.current_file_path:
             return ""
+        if self._progress_record_key:
+            return self._progress_record_key
         return self.progress_manager.build_file_key(self.current_file_path)
 
     def legacy_progress_key(self):
         """旧版本使用的阅读记录键（直接是路径），仅用于迁移旧记录"""
         return str(self.current_file_path) if self.current_file_path else ""
 
-    def progress_metadata(self):
-        """生成阅读记录的元数据：文件名、内容哈希、书名与作者等。"""
-        if not self.current_file_path:
-            return {}
+    # ---------------- 书本身份与多版本共用进度 ----------------
 
+    def current_book_title(self):
+        """当前书籍的书名与作者（书名缺失时回退到文件名 / 文件夹名）"""
         path = Path(str(self.current_file_path))
-        metadata = self.progress_manager.key_metadata(self.current_file_path,
-                                                      self.progress_key())
-
         info = {}
         if self.current_reader:
             try:
@@ -1356,14 +1379,200 @@ class NovelMaster(QMainWindow):
                 info = {}
 
         title = str(info.get("title") or "").strip()
-        author = str(info.get("author") or "").strip()
-        # 书名缺失时回退到文件名（文件夹模式则用文件夹名）
         if not title:
             title = path.name if path.is_dir() else path.stem
+        return title, str(info.get("author") or "").strip()
 
+    def current_book_identity(self):
+        """当前书籍的身份签名（书名 + 作者 + 开头几章的标题指纹）
+
+        文件夹模式不参与：它的记录键就是目录路径，增删文件都不影响。
+        章节名是自动编号的（UMD 缺章节标题、TXT 只有「第N章」等）算不出指纹，
+        此时给出只看书名的**弱身份**（``weak_id``），由调用方去问用户；
+        连书名都没有的（既没有 ``book_id`` 也没有 ``weak_id``）才退回按内容哈希。
+        """
+        if self._book_identity:
+            return self._book_identity
+        if not self.current_reader or isinstance(self.current_reader, FolderReader):
+            return {}
+
+        title, author = self.current_book_title()
+        try:
+            total = self.current_reader.get_chapter_count()
+        except Exception as e:
+            self.logger.log(f"获取章节总数失败: {e}", "WARN")
+            total = 0
+
+        titles = [self.chapter_title_of(self.current_reader, index)
+                  for index in range(min(FINGERPRINT_SAMPLE, total))]
+        self._book_identity = build_identity(title, titles, author=author,
+                                             total_chapters=total)
+        return self._book_identity
+
+    def progress_share_decisions(self):
+        """配置里「不再询问」的答案：``{比对键: 是否共用进度}``"""
+        entries = self.config_manager.get("progress_share_ignored", [])
+        decisions = {}
+        if not isinstance(entries, list):
+            return decisions
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            key = str(entry.get("key") or "")
+            if key:
+                decisions[key] = bool(entry.get("share"))
+        return decisions
+
+    @staticmethod
+    def progress_share_key(identity, entry):
+        """「不再询问」的比对键：书名 + 这一份已有记录"""
+        _record_file, record, _reason = entry
+        return f"{identity.get('title_key', '')}|{record_file_key(record)}"
+
+    def remember_progress_share(self, identity, pending, picked):
+        """把用户「以后不再询问」的选择写进配置
+
+        ``picked`` 是本次确认要合并的记录文件；不在里面的就是选了「保持独立」，
+        下次遇到这一对文件就直接按这次的选择办。
+        """
+        entries = self.config_manager.get("progress_share_ignored", [])
+        entries = list(entries) if isinstance(entries, list) else []
+        picked = {Path(item) for item in (picked or [])}
+        known = {str(entry.get("key") or "") for entry in entries
+                 if isinstance(entry, dict)}
+
+        for entry in pending:
+            key = self.progress_share_key(identity, entry)
+            if not key or key in known:
+                continue
+            entries.append({"key": key, "share": Path(entry[0]) in picked})
+            known.add(key)
+        self.config_manager.set("progress_share_ignored", entries[-MAX_SHARE_IGNORED:])
+
+    def ask_merge_progress(self, file_key, pending, weak=False):
+        """弹一次确认框：认出来的其它版本要不要共用阅读进度
+
+        返回 ``(确认要合并的记录文件列表, 用户是否勾了不再询问)``。
+        """
+        current = self.progress_manager.load_progress(file_key) or self.progress_metadata()
+        dialog = BookMergeDialog(
+            current,
+            [(Path(record_file), record)
+             for record_file, record, _reason in pending],
+            self, titlebar_theme=self.dialog_titlebar_theme(), weak=weak)
+        dialog.exec_()
+        return dialog.confirmed_record_files(), dialog.dont_ask
+
+    def adopt_shared_record(self, plan, content_key):
+        """关掉自动共用时：身份键上的记录要不要拿来当这本书的记录
+
+        强身份直接在，因为书本身份已经认定是同一本；弱身份（只按书名）得先
+        看到记录里确实有当前这个文件，否则那可能是同名另一本书的进度。
+        """
+        target_key = str((plan or {}).get("key") or "")
+        if not target_key or target_key == content_key:
+            return False
+        if not plan.get("weak"):
+            return self.progress_manager.get_progress_file_path(target_key).exists()
+        return record_covers_file(self.progress_manager.load_progress(target_key),
+                                  content_key, str(self.current_file_path))
+
+    def resolve_reading_record(self):
+        """决定用哪个记录键打开这本书，需要时把其它版本的进度合并进来
+
+        返回最终使用的记录键。这项功能只做加值：认不出身份、连书名都取不到、
+        或者中途出错，一律退回按内容哈希的旧行为，绝不让书打不开。
+
+        身份分两等：书名 + 章节指纹的**强身份**可以静默共用进度；
+        章节名是程序自动编号的书只有书名可用（**弱身份**），一律先问用户。
+        """
+        self._book_identity = {}
+        self._progress_record_key = ""
+        if not self.current_file_path:
+            return ""
+
+        content_key = self.progress_manager.build_file_key(self.current_file_path)
+        self._progress_record_key = content_key
+
+        try:
+            identity = self.current_book_identity()
+            weak = not identity.get("book_id")
+            if not (identity.get("book_id") or identity.get("weak_id")):
+                return content_key
+
+            plan = self.progress_manager.plan_record_key(
+                content_key, identity, str(self.current_file_path))
+            target_key = str(plan.get("key") or content_key)
+
+            if not self.config_manager.get("share_progress_versions", True):
+                # 关掉自动共用：已经存在的书本身份记录照读不误（否则以前合并过的
+                # 进度会好像丢了），但不做任何迁移与合并
+                if self.adopt_shared_record(plan, content_key):
+                    self._progress_record_key = target_key
+                return self._progress_record_key
+
+            decisions = self.progress_share_decisions()
+            confirmed = []
+            pending = []
+            for entry in plan.get("candidates") or []:
+                decision = decisions.get(self.progress_share_key(identity, entry))
+                if decision is True:
+                    confirmed.append(Path(entry[0]))
+                elif decision is None:
+                    # 还没问过用户的才需要问；回答过「保持独立」的就此略过
+                    pending.append(entry)
+
+            if pending:
+                picked, dont_ask = self.ask_merge_progress(content_key, pending,
+                                                           weak=weak)
+                confirmed.extend(picked)
+                if dont_ask:
+                    self.remember_progress_share(identity, pending, picked)
+
+            self._progress_record_key = self.progress_manager.apply_record_key(
+                plan, confirmed)
+
+            merged = len(plan.get("sources") or []) + len(confirmed)
+            if merged:
+                self.logger.log(f"按书本身份共用阅读记录（合并 {merged} 份）: "
+                                f"{content_key} -> {self._progress_record_key}")
+        except Exception as e:
+            self.logger.log(f"识别同书不同版本失败，改用内容哈希记录: {e}", "WARN")
+            self._book_identity = {}
+            self._progress_record_key = content_key
+
+        return self._progress_record_key
+
+    def progress_metadata(self):
+        """生成阅读记录的元数据：文件名、内容哈希、书名与身份签名等。"""
+        if not self.current_file_path:
+            return {}
+
+        path = Path(str(self.current_file_path))
+        metadata = self.progress_manager.key_metadata(self.current_file_path,
+                                                      self.progress_key())
+
+        title, author = self.current_book_title()
         metadata["novelname"] = title
         metadata["author"] = author
         metadata["app_version"] = VERSION
+
+        # 书本身份：下次拿同一本书的另一个版本（重新导出 / 追加了章节）打开时，
+        # 靠这几个字段认出来并共用进度
+        identity = self.current_book_identity()
+        if identity:
+            metadata["title_key"] = identity.get("title_key", "")
+            metadata["author_key"] = identity.get("author_key", "")
+            metadata["book_id"] = identity.get("book_id", "")
+            metadata["chapter_fingerprint"] = identity.get("chapter_fingerprint", "")
+            metadata["fingerprint_titles"] = identity.get("fingerprint_titles", [])
+
+        # 内容哈希与记录键无关：用来区分同一本书的不同版本（文件）；
+        # 文件夹没有内容哈希
+        if path.is_file():
+            file_digest = self.progress_manager.content_digest(path)
+            if file_digest:
+                metadata["file_md5"] = file_digest
 
         if self.current_reader:
             try:
@@ -1393,12 +1602,46 @@ class NovelMaster(QMainWindow):
             pass
         return ""
 
+    def reader_titles(self, reader):
+        """某本书（或文件夹里的某个文件）的全部章节标题，取不到时给空列表"""
+        try:
+            count = max(0, reader.get_chapter_count())
+        except Exception:
+            return []
+        return [self.chapter_title_of(reader, index) for index in range(count)]
+
+    def locate_chapter(self, reader, index, title):
+        """在新版本里定位上次读到的章节
+
+        先按章节标题找（同名章节取离原下标最近的那个），找不到再退回夹到有效
+        范围的下标：新版本基本都是往后追加章节，原下标本身往往就是对的。
+        """
+        try:
+            count = max(0, reader.get_chapter_count())
+        except Exception:
+            return 0
+        if count <= 0:
+            return 0
+
+        try:
+            index = max(0, min(count - 1, int(index or 0)))
+        except (TypeError, ValueError):
+            index = 0
+
+        wanted = normalise_chapter_title(title)
+        if not wanted:
+            return index
+        if normalise_chapter_title(self.chapter_title_of(reader, index)) == wanted:
+            return index
+        return chapter_index_in(self.reader_titles(reader), index, title)
+
     def load_reading_progress(self):
         """加载阅读进度"""
         if not self.current_file_path or not self.current_reader:
             return
 
-        file_key = self.progress_key()
+        # 先认书：同一本书的其它版本共用同一份记录，需要时在这里把它合并过来
+        file_key = self.resolve_reading_record() or self.progress_key()
         progress = self.progress_manager.load_progress(file_key, self.legacy_progress_key())
 
         # 打开次数 +1、载入统计数据并开始本次阅读计时
@@ -1416,23 +1659,28 @@ class NovelMaster(QMainWindow):
                         if item['name'] == inner_name:
                             file_index = i
                             break
-                chapter_index = progress.get("chapter", 0)
-                
+
                 if 0 <= file_index < self.current_reader.get_file_count():
                     self.current_reader.current_file_index = file_index
                     reader = self.current_reader.get_current_reader()
-                    if reader and 0 <= chapter_index < reader.get_chapter_count():
+                    # 章节也按标题定位：换过版本的内层文件章节序号可能错位
+                    chapter_index = progress.get("chapter", 0)
+                    if reader:
+                        chapter_index = self.locate_chapter(
+                            reader, chapter_index, progress.get("chapter_title"))
                         reader.current_chapter = chapter_index
                     # 文件可能已变化，重建章节列表后再选中
                     self.update_chapter_list()
                     self.select_chapter_in_tree("file", file_index)
             else:
-                # 单文件模式：恢复章节
-                chapter_index = progress.get("chapter", 0)
-                if 0 <= chapter_index < self.current_reader.get_chapter_count():
-                    self.current_reader.current_chapter = chapter_index
-                    # 自动选中对应的章节
-                    self.select_chapter_in_tree("chapter", chapter_index)
+                # 单文件模式：恢复章节（先按上次的章节标题定位，
+                # 重新导出导致章节序号错位时也能找回原来那一章）
+                chapter_index = self.locate_chapter(
+                    self.current_reader, progress.get("chapter", 0),
+                    progress.get("chapter_title"))
+                self.current_reader.current_chapter = chapter_index
+                # 自动选中对应的章节
+                self.select_chapter_in_tree("chapter", chapter_index)
 
             # 章内位置：只在开关打开且重新打开的是同一章节时才还原
             if self.config_manager.get("restore_scroll_position", True):
@@ -1515,14 +1763,17 @@ class NovelMaster(QMainWindow):
         }
 
     def current_unit_name(self):
-        """统计单元名：单文件模式是文件名，文件夹模式是当前内层文件名"""
+        """统计单元名：单文件模式统一是 ``"*"``，文件夹模式是当前内层文件名
+
+        单文件模式一份记录就对应整本书，用文件名当单元名的话，文件改名或换成
+        另一个版本后，同一批章节会在同一份记录里被数好几遍。
+        """
         if isinstance(self.current_reader, FolderReader):
             current = self.current_reader.get_current_file()
             if current:
                 return str(current['name'])
-        if self.current_file_path:
-            return Path(str(self.current_file_path)).name
-        return ""
+            return ""
+        return "*" if self.current_reader else ""
 
     def begin_reading_session(self, progress):
         """载入记录里的统计数据并开始本次会话（打开次数 +1、记录打开时间）"""
@@ -1653,6 +1904,15 @@ class NovelMaster(QMainWindow):
         self.config_manager.set("typography_follow_theme", bool(checked))
         current = self.config_manager.get("theme", DEFAULT_THEME)
         self.apply_theme(current)
+
+    def toggle_share_progress(self, checked):
+        """切换「同名书籍共用阅读进度」
+
+        开关影响的是「下次打开书籍时怎么找记录」，所以当前这本书维持现状，
+        重新打开后才按新的设置走。
+        """
+        self.config_manager.set("share_progress_versions", bool(checked))
+        self.logger.log(f"同名书籍共用阅读进度: {'开启' if checked else '关闭'}")
 
     def show_continue_reading(self):
         """打开「继续阅读」面板，选中记录后直接接着读"""

@@ -108,6 +108,17 @@ def latest_time_text(record):
     return dash()
 
 
+def join_names(names, limit=3):
+    """把若干文件名拼成一行；超出上限时追一个「共 N 个」"""
+    if not names:
+        return dash()
+    text = i18n.t("common.list_separator", default="、").join(names[:limit])
+    if len(names) > limit:
+        text += i18n.t("continue.tooltip_more", default="（共 {count} 个）",
+                        count=len(names))
+    return text
+
+
 class _RecordItem(QTreeWidgetItem):
     """带排序键的表格项
 
@@ -143,6 +154,8 @@ class ContinueReadingDialog(QDialog):
         self.selected_path = ""
         # [(记录文件路径, 记录内容, 文件是否还在)]
         self.records = []
+        # title_key -> [记录]，用来标记同一本书的其它版本
+        self._title_groups = {}
         #: 本对话框自己的标题栏用哪套配色（showEvent 里才会真正套上去）
         self._titlebar_theme = titlebar_theme
 
@@ -243,6 +256,16 @@ class ContinueReadingDialog(QDialog):
         for record_file, record in self.progress_manager.iter_records():
             exists = self.record_target_exists(record)
             self.records.append((record_file, record, exists))
+
+        # 按书本身份归组：同一本书的不同版本会共用一个身份，列表里互相标出来，
+        # 提醒用户这些记录其实共享阅读进度
+        self._title_groups = {}
+        for _, record, _ in self.records:
+            key = str(record.get("title_key") or "")
+            if key:
+                self._title_groups.setdefault(key, []).append(record)
+
+        for record_file, record, exists in self.records:
             self.record_tree.addTopLevelItem(self.build_item(record, record_file, exists))
 
         self.record_tree.setSortingEnabled(True)
@@ -267,6 +290,13 @@ class ContinueReadingDialog(QDialog):
         filename = str(record.get("filename") or placeholder)
         if not exists:
             novelname = f"⚠ {novelname}"
+
+        # 同一本书的其它版本也留着记录：加个标记，提示它们共用进度
+        others = [item for item in
+                  self._title_groups.get(str(record.get("title_key") or ""), [])
+                  if item is not record]
+        if others:
+            novelname = f"⇄ {novelname}"
 
         total_chapters = int(record.get("total_chapters") or 0)
         reached = max(int(record.get("max_chapter") or 0), int(record.get("chapter") or 0)) + 1
@@ -307,19 +337,21 @@ class ContinueReadingDialog(QDialog):
         )
 
         item = _RecordItem(texts, sort_keys, record, record_file, exists)
-        item.setToolTip(COLUMN_TITLE, self.build_tooltip(record, exists))
+        item.setToolTip(COLUMN_TITLE, self.build_tooltip(record, exists, others))
         if not exists:
             for column in range(COLUMN_COUNT):
                 item.setForeground(column, QBrush(MISSING_COLOR))
         return item
 
     @staticmethod
-    def build_tooltip(record, exists):
+    def build_tooltip(record, exists, others=()):
         """鼠标悬停时的详细信息"""
         placeholder = dash()
         lines = []
         if not exists:
             lines.append(i18n.t("continue.tooltip_missing"))
+        if others:
+            lines.append(i18n.t("continue.tooltip_shared"))
         rows = (
             ("continue.tooltip_file_path", record.get("file_path") or placeholder),
             ("continue.tooltip_title", record.get("novelname") or placeholder),
@@ -338,6 +370,32 @@ class ContinueReadingDialog(QDialog):
         for key, value in rows:
             lines.append(i18n.t("continue.tooltip_line", label=i18n.t(key),
                                 value=value))
+
+        # 这本书见过的所有版本（文件名）
+        version_names = []
+        versions = record.get("versions")
+        if isinstance(versions, list):
+            for entry in versions:
+                if not isinstance(entry, dict):
+                    continue
+                name = str(entry.get("filename") or entry.get("file_path") or "")
+                if name and name not in version_names:
+                    version_names.append(name)
+        if version_names:
+            lines.append(i18n.t("continue.tooltip_line",
+                                label=i18n.t("continue.tooltip_versions"),
+                                value=join_names(version_names)))
+
+        # 同名书的其它记录（打开时会共用同一份进度）
+        if others:
+            other_names = []
+            for other in others:
+                name = str(other.get("filename") or other.get("file_path") or "")
+                if name:
+                    other_names.append(name)
+            lines.append(i18n.t("continue.tooltip_line",
+                                label=i18n.t("continue.tooltip_related"),
+                                value=join_names(other_names)))
         return "\n".join(lines)
 
     # ---------------- 过滤与状态 ----------------
