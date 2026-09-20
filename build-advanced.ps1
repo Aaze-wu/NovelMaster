@@ -546,7 +546,7 @@ except Exception:
 sys.exit(0 if ok else 1)
 '@
 
-    $modules = @('PyQt5', 'PyQt5.QtWebEngineWidgets', 'ebooklib', 'lxml', 'chardet', 'PIL', 'pypdf', 'docx')
+    $modules = @('PyQt5', 'PyQt5.QtWebEngineWidgets', 'PyQt5.QtTextToSpeech', 'ebooklib', 'lxml', 'chardet', 'PIL', 'pypdf', 'docx')
     $missing = New-Object System.Collections.Generic.List[string]
     foreach ($module in $modules) {
         $result = Invoke-Quiet -Exe $Exe -Arguments @('-c', $probe, $module)
@@ -803,6 +803,10 @@ $nuitkaArgs += @(
     "--file-description=$($meta.Description)"
     "--output-dir=$OutputDirPath"
     '--enable-plugin=pyqt5'
+    # 朗读靠 QtTextToSpeech：Nuitka 的 pyqt5 插件默认不收集 texttospeech
+    # 插件（见 PySidePyQtPlugin._getSensiblePlugins），不显式包含的话冻结版
+    # 里 QTextToSpeech 会找不到后端，朗读静默无声
+    '--include-qt-plugins=texttospeech'
     '--include-package=enm'
     '--include-package=ebooklib'
     '--include-package=chardet'

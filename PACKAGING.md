@@ -173,6 +173,8 @@ dist/
 打包脚本会自动包含以下依赖：
 
 - **PyQt5 / PyQtWebEngine**: GUI框架
+- **PyQt5.QtTextToSpeech**: 朗读（TTS）功能，调用系统自带语音引擎（Windows 为 SAPI5），
+  无需额外第三方包；同时必须带上 Qt 的 `texttospeech` 插件（见下）
 - **ebooklib**: EPUB文件处理
 - **lxml**: XML/HTML解析
 - **chardet**: 编码检测
@@ -188,6 +190,33 @@ dist/
 
 - `lang/`: 多语言翻译文件
 - `icon/`: 程序图标
+
+### Qt 插件：朗读必须显式包含 `texttospeech`
+
+Nuitka 的 `pyqt5` 插件只自动带上 `platforms` / `imageformats` / `iconengines` 这类
+**常用**插件（见 `PySidePyQtPlugin._getSensiblePlugins()`），`texttospeech` 不在其中。
+漏掉它的后果是：打包后的程序能正常启动、朗读条也能点，但**一点声音都没有**
+（`QTextToSpeech.availableEngines()` 为空，界面会把朗读功能置灰）。
+
+因此两个打包脚本都带了：
+
+```text
+--include-qt-plugins=texttospeech
+```
+
+它是**追加**语义（源码里 `sensible_qt_plugins.update(include_qt_plugins)`），
+不会把默认插件挤掉，可以放心和现有参数共存。验证办法：装完之后直接跑发布版，
+看"朗读"菜单里能不能列出语音。
+
+对应的运行库有：
+
+```text
+dist/NovelMaster.dist/PyQt5/Qt5/bin/Qt5TextToSpeech.dll
+dist/NovelMaster.dist/PyQt5/QtTextToSpeech.pyd
+dist/NovelMaster.dist/PyQt5/Qt5/plugins/texttospeech/qtexttospeech_sapi.dll
+```
+
+（单文件模式会在解包目录里出现同样三个文件。）
 
 ### 排除的模块
 
@@ -252,6 +281,13 @@ pip install -i https://mirrors.aliyun.com/pypi/simple/ --upgrade nuitka
 - 确保使用`--standalone`选项
 - 检查是否包含了所有必要的包
 - 使用`--include-package`手动包含缺失的包
+
+### 5. 打包后朗读没声音
+
+- 确认打包参数里有 `--include-qt-plugins=texttospeech`（两个脚本都已默认带上）；
+- 确认目标机器上装了至少一个语音（Windows："设置" → "时间和语言" → "语音"）；
+- 拿开发环境对比一下：`python -c "from PyQt5.QtTextToSpeech import QTextToSpeech; print(QTextToSpeech.availableEngines())"`
+  应该输出 `['sapi']`；打包版输出为空就是插件没进去。
 
 ## 🔄 更新打包
 

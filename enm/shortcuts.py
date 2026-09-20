@@ -30,10 +30,11 @@ READER = "reader"
 # 分组（顺序即改键界面里的显示顺序；名字在语言文件的 shortcut.group.* 里）
 GROUP_FILE = "file"
 GROUP_NAV = "nav"
+GROUP_AUDIO = "audio"
 GROUP_VIEW = "view"
 GROUP_THEME = "theme"
 
-GROUP_ORDER = (GROUP_FILE, GROUP_NAV, GROUP_VIEW, GROUP_THEME)
+GROUP_ORDER = (GROUP_FILE, GROUP_NAV, GROUP_AUDIO, GROUP_VIEW, GROUP_THEME)
 
 # 显示名与说明都放在语言文件里，这里的 label / hint 只作为缺键时的兜底。
 # 一个快捷键定义：动作 id、显示名、分组、默认按键、生效范围、说明
@@ -67,6 +68,23 @@ ACTION_DEFS = (
                 WINDOW, "回到当前章节开头"),
     ShortcutDef("nav.chapter_end", "跳到章尾", GROUP_NAV, "Ctrl+End",
                 WINDOW, "跳到当前章节末尾"),
+
+    # ---- 朗读 ----
+    # 全部是 READER 范围：朗读的按键（尤其空格）必须只在阅读区聚焦时生效，
+    # 否则在输入框、对话框里打不出空格。空格还要抢在 QTextEdit 前面——
+    # 只读的 QTextEdit 会把空格当翻页键用掉，所以主窗口的 eventFilter 负责拦截。
+    ShortcutDef("tts.play_pause", "开始/暂停朗读", GROUP_AUDIO, "Space", READER,
+                "阅读区聚焦时生效（空格）"),
+    ShortcutDef("tts.stop", "停止朗读", GROUP_AUDIO, "", READER,
+                "停止朗读并回到当前句开头（默认未绑定）"),
+    ShortcutDef("tts.prev_sentence", "上一句", GROUP_AUDIO, "Ctrl+Up", READER,
+                "退回上一句；刚开始读时先重读当前句"),
+    ShortcutDef("tts.next_sentence", "下一句", GROUP_AUDIO, "Ctrl+Down", READER,
+                "跳到下一句，读快了可以手动往前赶"),
+    ShortcutDef("tts.rate_up", "朗读语速加快", GROUP_AUDIO, "Ctrl+Shift+Up",
+                READER, "语速往上调一档（很慢 → 很快）"),
+    ShortcutDef("tts.rate_down", "朗读语速减慢", GROUP_AUDIO, "Ctrl+Shift+Down",
+                READER, "语速往下调一档（很快 → 很慢）"),
 
     # ---- 界面控制 ----
     ShortcutDef("view.toggle_sidebar", "显示/隐藏章节列表", GROUP_VIEW,

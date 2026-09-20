@@ -41,6 +41,16 @@
     "goto_chapter": "跳到章節...",
     "chapter_start": "跳到章首",
     "chapter_end": "跳到章尾",
+    "tts": "朗讀",
+    "tts_play": "開始朗讀",
+    "tts_pause": "暫停朗讀",
+    "tts_resume": "繼續朗讀",
+    "tts_stop": "停止朗讀",
+    "tts_prev_sentence": "上一句",
+    "tts_next_sentence": "下一句",
+    "tts_voice": "朗讀語音",
+    "tts_auto_next": "讀完自動讀下一章",
+    "tts_highlight": "朗讀時高亮目前句",
     "settings": "設定",
     "theme": "主題",
     "theme_light": "淺色主題",
@@ -104,7 +114,40 @@
     "file_missing": "檔案不存在",
     "file_missing_detail": "{path}\n\n檔案可能已被移動或刪除。",
     "no_displayable_content": "檔案中沒有可顯示的內容。",
-    "no_displayable_content_folder": "無法讀取該檔案或檔案中沒有可顯示的內容。"
+    "no_displayable_content_folder": "無法讀取該檔案或檔案中沒有可顯示的內容。",
+    "tts_unavailable": "這台電腦上沒有可用的語音引擎，朗讀功能無法使用。",
+    "tts_empty": "這一章沒有可朗讀的文字（可能只有圖片）。"
+  },
+  "tts": {
+    "play": "開始朗讀",
+    "pause": "暫停",
+    "resume": "繼續",
+    "stop": "停止",
+    "previous_sentence": "上一句",
+    "next_sentence": "下一句",
+    "rate": {
+      "label": "語速",
+      "very_slow": "很慢",
+      "slow": "慢",
+      "normal": "正常",
+      "fast": "快",
+      "very_fast": "很快"
+    },
+    "voice": {
+      "none": "（沒有可用語音）"
+    },
+    "auto_next_chapter": "自動讀下一章",
+    "highlight": "跟隨高亮",
+    "state": {
+      "playing": "朗讀中",
+      "paused": "已暫停",
+      "idle": "未朗讀",
+      "position": "第 {index}/{total} 句"
+    },
+    "error": {
+      "engine_failed": "朗讀引擎發生錯誤，請稍後再試。",
+      "speak_failed": "無法朗讀，系統語音引擎無法使用。"
+    }
   },
   "about": {
     "title": "關於",
@@ -118,12 +161,14 @@
     "feature_theme": "主題切換與自訂",
     "feature_i18n": "多語言支援",
     "feature_shortcuts": "可自訂的快捷鍵",
-    "feature_ui": "現代化的使用者介面"
+    "feature_ui": "現代化的使用者介面",
+    "feature_tts": "朗讀（用系統語音朗讀，可背景朗讀並自動翻章）"
   },
   "shortcut": {
     "group": {
       "file": "檔案操作",
       "nav": "閱讀導航",
+      "audio": "朗讀",
       "view": "介面控制",
       "theme": "主題與設定"
     },
@@ -177,6 +222,30 @@
       "nav_chapter_end": {
         "label": "跳到章尾",
         "hint": "跳到目前章節結尾"
+      },
+      "tts_play_pause": {
+        "label": "開始/暫停朗讀",
+        "hint": "閱讀區取得焦點時生效（空格）"
+      },
+      "tts_stop": {
+        "label": "停止朗讀",
+        "hint": "停止朗讀並回到目前句開頭（預設未綁定）"
+      },
+      "tts_prev_sentence": {
+        "label": "上一句",
+        "hint": "退回上一句；剛開始朗讀時會先重讀目前句"
+      },
+      "tts_next_sentence": {
+        "label": "下一句",
+        "hint": "跳到下一句，唸太快時可以手動往前趕"
+      },
+      "tts_rate_up": {
+        "label": "朗讀語速加快",
+        "hint": "語速往上調一級（很慢 → 很快）"
+      },
+      "tts_rate_down": {
+        "label": "朗讀語速減慢",
+        "hint": "語速往下調一級（很快 → 很慢）"
       },
       "view_toggle_sidebar": {
         "label": "顯示/隱藏章節清單",

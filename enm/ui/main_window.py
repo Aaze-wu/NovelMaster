@@ -5,7 +5,8 @@ import time
 from pathlib import Path
 
 from PyQt5.QtCore import QEvent, Qt, QTimer
-from PyQt5.QtGui import QFont, QIcon, QImage, QKeySequence, QTextCursor
+from PyQt5.QtGui import (QColor, QFont, QIcon, QImage, QKeySequence,
+                         QTextCharFormat, QTextCursor)
 from PyQt5.QtWidgets import (QAction, QApplication, QDialog, QFileDialog,
                              QFontDialog, QHBoxLayout, QInputDialog, QLabel,
                              QMainWindow, QMessageBox, QProgressBar,
@@ -21,6 +22,9 @@ from ..managers import (ConfigManager, DEFAULT_THEME, ReadingProgressManager,
 from ..managers.book_identity import (FINGERPRINT_SAMPLE, build_identity,
                                       chapter_index_in,
                                       normalise_chapter_title)
+from ..managers.tts import (DEFAULT_MAX_CHARS, SpeechQueue, available_engines,
+                            create_backend, pick_voice, sentences_for_blocks,
+                            order_voices, voice_label)
 from ..readers import (SUPPORTED_EXTENSIONS, FolderReader, ReaderError,
                        build_open_file_filter, create_reader,
                        format_chapter_html, supported_extensions_text)
@@ -40,6 +44,7 @@ from .theme_qss import (SPLITTER_HANDLE_WIDTH, build_palette,
                         build_style_sheet)
 from .titlebar import (apply_dark_mode, apply_titlebar_theme, available,
                        reset_titlebar_theme)
+from .tts_bar import RATE_PRESETS, TtsBar, nearest_rate
 from ..logger import logger
 
 # 阅读区字号范围（字体增大 / 减小用）
@@ -99,6 +104,13 @@ class NovelMaster(QMainWindow):
             "nav.next_chapter": self.next_chapter,
             "nav.reader_prev": self.previous_chapter,
             "nav.reader_next": self.next_chapter,
+            # 朗读相关：全部只注册在阅读区，这样空格等键不会从输入框里被抢走
+            "tts.play_pause": self.toggle_speech,
+            "tts.stop": self.stop_speech,
+            "tts.prev_sentence": self.previous_sentence,
+            "tts.next_sentence": self.next_sentence,
+            "tts.rate_up": self.speech_rate_up,
+            "tts.rate_down": self.speech_rate_down,
         }
         # 按生效范围缓存的绑定快照，供阅读区按键过滤使用
         self._window_bindings = {}
@@ -149,6 +161,18 @@ class NovelMaster(QMainWindow):
         # 不必重复解析章节标题
         self._book_identity = {}
         self._progress_record_key = ""
+
+        # 朗读（v1.3.5）：引擎和句子队列都是懒创建的——没点过朗读就不加载
+        # 系统语音；_tts_available 缓存「这台机器有没有引擎」的结论
+        self._tts_backend = None
+        self._tts_queue = None
+        self._tts_available = None
+        self._speech_state = "idle"
+        self._tts_highlight_index = -1
+        # 自动翻章后要不要接着读（sync_speech_content 读出后立刻清掉）
+        self._tts_continues = False
+        # 朗读进行中用户换了语音：先记下来，等停下来再换
+        self._tts_voice_pending = ""
         
         # 设置窗口图标
         self.set_window_icon()
@@ -246,6 +270,11 @@ class NovelMaster(QMainWindow):
         self.reader_display = QTextEdit()
         self.reader_display.setReadOnly(True)
         reader_layout.addWidget(self.reader_display)
+
+        # 朗读条（常驻正文下方；控件本体在 enm/ui/tts_bar.py，这里只接线）
+        self.tts_bar = TtsBar(self.reader_widget)
+        self._connect_speech_bar()
+        reader_layout.addWidget(self.tts_bar)
         
         # 控制按钮
         control_layout = QHBoxLayout()
@@ -356,6 +385,9 @@ class NovelMaster(QMainWindow):
         self.refresh_shortcuts()
         # 主题菜单里的自定义主题列表（内置主题名与空列表提示都是翻译文本）
         self.update_theme_menu()
+        # 朗读条上的按钮 / 开关文案（「开始朗读」等不在 _text_bindings 里，
+        # 它在朗读条内部自己管）
+        self.tts_bar.retranslate()
     
     def refresh_reader_text(self):
         """按当前语言重渲染正在显示的章节（保留章内阅读位置）"""
@@ -416,6 +448,42 @@ class NovelMaster(QMainWindow):
         self.make_action("menu.chapter_end", self.scroll_to_chapter_end,
                          "nav.chapter_end")
         read_menu.addAction(self._actions["nav.chapter_end"])
+
+        # 朗读菜单（引擎 / 开关在 apply_speech_settings 里按配置刷新）
+        speech_menu = self.add_menu(menubar, "menu.tts")
+
+        self.make_action(self._speech_play_key, self.toggle_speech,
+                         "tts.play_pause", READER)
+        speech_menu.addAction(self._actions["tts.play_pause"])
+
+        self.make_action("menu.tts_stop", self.stop_speech, "tts.stop", READER)
+        speech_menu.addAction(self._actions["tts.stop"])
+
+        speech_menu.addSeparator()
+
+        self.make_action("menu.tts_prev_sentence", self.previous_sentence,
+                         "tts.prev_sentence", READER)
+        speech_menu.addAction(self._actions["tts.prev_sentence"])
+
+        self.make_action("menu.tts_next_sentence", self.next_sentence,
+                         "tts.next_sentence", READER)
+        speech_menu.addAction(self._actions["tts.next_sentence"])
+
+        speech_menu.addSeparator()
+
+        # 语音列表要枚举系统语音（会加载引擎），所以打开菜单时才填
+        self.speech_voice_menu = self.add_menu(speech_menu, "menu.tts_voice")
+        self.speech_voice_menu.aboutToShow.connect(self.update_speech_voice_menu)
+
+        self.speech_auto_next_action = self.make_action(
+            "menu.tts_auto_next", self.toggle_speech_auto_next)
+        self.speech_auto_next_action.setCheckable(True)
+        speech_menu.addAction(self.speech_auto_next_action)
+
+        self.speech_highlight_action = self.make_action(
+            "menu.tts_highlight", self.toggle_speech_highlight)
+        self.speech_highlight_action.setCheckable(True)
+        speech_menu.addAction(self.speech_highlight_action)
         
         # 设置菜单
         settings_menu = self.add_menu(menubar, "menu.settings")
@@ -550,6 +618,11 @@ class NovelMaster(QMainWindow):
                                        self.next_chapter)
         self.bind_hint(next_action, "nav.next_chapter")
         toolbar.addAction(next_action)
+
+        toolbar.addSeparator()
+
+        # 朗读开关（文案随播放状态变，见 _speech_play_key）
+        toolbar.addAction(self._actions["tts.play_pause"])
     
     # ---------------- 快捷键 ----------------
     
@@ -715,6 +788,8 @@ class NovelMaster(QMainWindow):
         self._refresh_sidebar_text()
         self.update_theme_menu()
         self.update_progress()
+        # 朗读相关配置（语速 / 开关 / 可用性）
+        self.apply_speech_settings()
     
     def apply_theme(self, theme_name):
         """应用主题。
@@ -745,6 +820,9 @@ class NovelMaster(QMainWindow):
             app.setPalette(build_palette(theme))
 
         self.apply_native_titlebar(theme)
+        # 高亮底色取自主题（highlight / selection / accent），换主题或改字号
+        # 之后要重标一次，否则还留着上一套配色
+        self.apply_speech_highlight(self._tts_highlight_index)
 
     # ---------------- 原生标题栏与主题排版 ----------------
 
@@ -951,6 +1029,8 @@ class NovelMaster(QMainWindow):
                 self.reader_display.setHtml("<p>%s</p>" % i18n.t(
                     "msg.no_displayable_content_folder"))
                 self.update_progress()
+                # 正文没了：同步一次，别让朗读继续读上一本书
+                self.sync_speech_content()
                 return
             # 修正越界的章节索引
             if not (0 <= inner.current_chapter < inner.get_chapter_count()):
@@ -965,6 +1045,7 @@ class NovelMaster(QMainWindow):
                 self.reader_display.setHtml("<p>%s</p>" % i18n.t(
                     "msg.no_displayable_content"))
                 self.update_progress()
+                self.sync_speech_content()
                 return
             if not (0 <= reader.current_chapter < reader.get_chapter_count()):
                 reader.current_chapter = 0
@@ -983,6 +1064,8 @@ class NovelMaster(QMainWindow):
         self.restore_pending_scroll()
         
         self.update_progress()
+        # 正文换了：重排朗读句子表（正在朗读时接着读，见 sync_speech_content）
+        self.sync_speech_content()
 
     # ---------------- 内嵌图片展示 ----------------
 
@@ -1816,14 +1899,19 @@ class NovelMaster(QMainWindow):
         return elapsed
 
     def on_activation_changed(self, active):
-        """窗口激活状态变化：激活时开始计时，失焦时结算并落盘一次"""
+        """窗口激活状态变化：激活时开始计时，失焦时结算并落盘一次
+
+        例外：正在朗读时不结算 —— 用户就是让程序读给自己听，窗口失焦
+        （切去看别的东西）这段仍然是阅读时间，等朗读停下来再结算。
+        """
         if active:
             if self.current_reader is not None and self._focus_started_at is None:
                 self._focus_started_at = time.monotonic()
             return
         
-        self.accumulate_focus_time()
-        self._focus_started_at = None
+        if not self.speech_active():
+            self.accumulate_focus_time()
+            self._focus_started_at = None
         # 失焦时顺手保存一次，避免异常退出丢掉进度
         if self.current_reader is not None and self.config_manager.get("auto_save", True):
             self.save_reading_progress()
@@ -2110,6 +2198,9 @@ class NovelMaster(QMainWindow):
         self._install_qt_translations()
         # 日志由 LanguageManager.set_language 统一输出，这里不再重复记录
         self.retranslate_ui()
+        # 界面语言变了，朗读语音也跟着换（中文书用中文语音，英文书用英文语音）；
+        # 用户手动指定过语音的话 pick_voice 会优先用它
+        self.apply_speech_voice()
     
     def _install_qt_translations(self):
         """按当前界面语言装卸 Qt 自带翻译（见 :mod:`enm.ui.qt_translations`）
@@ -2262,6 +2353,7 @@ class NovelMaster(QMainWindow):
             "about.feature_i18n": {},
             "about.feature_shortcuts": {},
             "about.feature_ui": {},
+            "about.feature_tts": {},
         }
         features = "".join(f"<li>{i18n.t(key, **params)}</li>"
                            for key, params in feature_params.items())
@@ -2276,6 +2368,456 @@ class NovelMaster(QMainWindow):
         
         QMessageBox.about(self, i18n.t("about.title"), about_text)
     
+    # ---------------- 朗读（v1.3.5） ----------------
+
+    def speech_available(self):
+        """这台机器有没有可用的朗读引擎（结论只问一次系统）
+
+        只查「系统里有哪些引擎」（``QTextToSpeech.availableEngines()``），
+        **不**创建引擎对象 —— 没点过朗读就不加载系统语音，启动速度不受影响。
+        """
+        if self._tts_available is None:
+            self._tts_available = bool(available_engines())
+            if not self._tts_available:
+                self.logger.log("系统没有可用的朗读引擎，朗读功能已置灰", "WARN")
+        return self._tts_available
+
+    def speech_active(self):
+        """是否正在朗读 / 暂停中（失焦计时、关窗口都用它判断）"""
+        queue = self._tts_queue
+        return bool(queue is not None and queue.active)
+
+    def speech_queue(self):
+        """懒创建朗读队列（含本机语音引擎）；不可用时返回 ``None``"""
+        if self._tts_queue is not None:
+            return self._tts_queue
+        if not self.speech_available():
+            return None
+
+        backend = create_backend()
+        if backend is None:
+            self._tts_available = False
+            self.update_speech_controls()
+            return None
+
+        queue = SpeechQueue(backend, self)
+        queue.sentence_changed.connect(self.on_speech_sentence_changed)
+        queue.state_changed.connect(self.on_speech_state_changed)
+        queue.finished.connect(self.on_speech_finished)
+        queue.failed.connect(self.on_speech_failed)
+        self._tts_backend = backend
+        self._tts_queue = queue
+        queue.set_rate(self.speech_rate())
+        queue.set_volume(self.config_manager.get("tts_volume", 1.0))
+        self.apply_speech_voice()
+        if DEBUG_MODE:
+            self.logger.debug(f"朗读引擎就绪: {backend.name}")
+        return queue
+
+    # ---- 配置 ----
+
+    def speech_rate(self):
+        """配置里的朗读语速（-1.0 ~ 1.0，取最接近的档位值）"""
+        return nearest_rate(self.config_manager.get("tts_rate", 0.0))
+
+    def speech_max_chars(self):
+        """单句最长字符数（超长句子会被再切一刀）"""
+        try:
+            limit = int(self.config_manager.get("tts_split_max_chars",
+                                                DEFAULT_MAX_CHARS))
+        except (TypeError, ValueError):
+            limit = DEFAULT_MAX_CHARS
+        return limit
+
+    def speech_highlight_enabled(self):
+        """是否高亮正在朗读的那一句"""
+        return bool(self.config_manager.get("tts_highlight", True))
+
+    def speech_auto_scroll_enabled(self):
+        """是否跟着高亮自动滚动（高亮关了就没有滚动可言）"""
+        return self.speech_highlight_enabled() and bool(
+            self.config_manager.get("tts_auto_scroll", True))
+
+    def speech_auto_next_enabled(self):
+        """读完这章是否自动读下一章"""
+        return bool(self.config_manager.get("tts_auto_next_chapter", True))
+
+    def apply_speech_settings(self):
+        """把朗读相关配置套到朗读条与队列上（apply_settings 末尾调用）"""
+        rate = self.speech_rate()
+        self.tts_bar.set_rate(rate)
+        self.tts_bar.set_auto_next(self.speech_auto_next_enabled())
+        self.tts_bar.set_highlight(self.speech_highlight_enabled())
+        for action, checked in (
+                (getattr(self, "speech_auto_next_action", None),
+                 self.speech_auto_next_enabled()),
+                (getattr(self, "speech_highlight_action", None),
+                 self.speech_highlight_enabled())):
+            if action is not None:
+                action.setChecked(checked)
+        queue = self._tts_queue
+        if queue is not None:
+            queue.set_rate(rate)
+            queue.set_volume(self.config_manager.get("tts_volume", 1.0))
+        self.update_speech_controls()
+
+    def update_speech_controls(self):
+        """按「有没有引擎」刷新朗读菜单、工具栏与朗读条"""
+        enabled = self.speech_available()
+        self.tts_bar.set_available(enabled)
+        for action_id in ("tts.play_pause", "tts.stop", "tts.prev_sentence",
+                          "tts.next_sentence"):
+            action = self._actions.get(action_id)
+            if action is not None:
+                action.setEnabled(enabled)
+        for action in (getattr(self, "speech_auto_next_action", None),
+                       getattr(self, "speech_highlight_action", None)):
+            if action is not None:
+                action.setEnabled(enabled)
+        voice_menu = getattr(self, "speech_voice_menu", None)
+        if voice_menu is not None:
+            voice_menu.setEnabled(enabled)
+        return enabled
+
+    # ---- 语音 ----
+
+    def apply_speech_voice(self):
+        """按界面语言挑一个语音（用户手动选过的优先）
+
+        朗读进行中不立刻换 —— 换语音会打断当前这句 —— 先记下来，等队列
+        回到空闲再换（见 :meth:`on_speech_state_changed`）。
+        """
+        backend = self._tts_backend
+        if backend is None:
+            return
+        voice = pick_voice(backend.voices(), i18n.current_language(),
+                           self.config_manager.get("tts_voice_name", ""))
+        if voice is None or voice.voice_id == backend.current_voice_id():
+            return
+        if self.speech_active():
+            self._tts_voice_pending = voice.voice_id
+            return
+        backend.set_voice(voice.voice_id)
+        self._tts_voice_pending = ""
+        if DEBUG_MODE:
+            self.logger.debug(f"朗读语音: {voice_label(voice)}")
+
+    def select_speech_voice(self, voice_id):
+        """用户在菜单里手动指定语音（记进配置，下次启动照旧）"""
+        self.config_manager.set("tts_voice_name", voice_id)
+        backend = self._tts_backend
+        if backend is None:
+            return
+        if self.speech_active():
+            self._tts_voice_pending = voice_id
+            return
+        backend.set_voice(voice_id)
+
+    def update_speech_voice_menu(self):
+        """重建「朗读语音」子菜单（打开菜单时才枚举，避免启动就加载引擎）"""
+        menu = getattr(self, "speech_voice_menu", None)
+        if menu is None:
+            return
+        menu.clear()
+        if not self.speech_available():
+            return
+        if self._tts_backend is None:
+            # 用户点开了语音菜单，说明要用朗读，这时候建引擎是值得的
+            self.speech_queue()
+        backend = self._tts_backend
+        if backend is None:
+            return
+        current = backend.current_voice_id()
+        voices = order_voices(backend.voices(), i18n.current_language())
+        if not voices:
+            empty = menu.addAction(i18n.t("tts.voice.none"))
+            empty.setEnabled(False)
+            return
+        for voice in voices:
+            action = menu.addAction(voice_label(voice))
+            action.setCheckable(True)
+            action.setChecked(voice.voice_id == current)
+            action.triggered.connect(
+                lambda _checked=False, voice_id=voice.voice_id:
+                self.select_speech_voice(voice_id))
+
+    # ---- 句子表 ----
+
+    def speech_sentences(self):
+        """当前正文的朗读句子表（每句还带着它在文档里的位置，供高亮用）
+
+        逐 ``QTextBlock`` 取文本并保留 ``block.position()``，所以含图片 /
+        表格的章节也能和高亮位置对齐 —— 不用手拼全文再回头找偏移。
+        """
+        document = self.reader_display.document()
+        blocks = []
+        block = document.begin()
+        while block.isValid():
+            text = block.text()
+            if text and text.strip():
+                blocks.append((block.position(), text))
+            block = block.next()
+        return sentences_for_blocks(blocks, max_chars=self.speech_max_chars())
+
+    def ensure_speech_spans(self):
+        """确保队列里有当前正文的句子表（首次朗读 / 空闲时翻句都要用）"""
+        queue = self.speech_queue()
+        if queue is not None and not queue.sentence_count:
+            queue.load(self.speech_sentences(), 0)
+        return queue
+
+    def sync_speech_content(self):
+        """正文重渲染后同步朗读内容（``display_content`` 末尾调用）
+
+        * 正在朗读 / 暂停 → 换一份句子表并从章首接着读（自动翻章靠这个）；
+        * 空闲 → 只清掉旧句子，下次点朗读时按当前章节重新生成。
+        """
+        queue = self._tts_queue
+        if queue is None:
+            return
+        continues = self._tts_continues
+        self._tts_continues = False
+        if not (queue.active or continues):
+            if queue.sentence_count:
+                queue.load([], 0)
+            return
+        queue.load(self.speech_sentences(), 0)
+        if continues and not queue.active:
+            queue.start(0)
+
+    # ---- 播放控制 ----
+
+    def toggle_speech(self):
+        """开始 / 暂停 / 继续朗读（空格、朗读条、菜单、工具栏共用）"""
+        if self.current_reader is None:
+            QMessageBox.information(self, i18n.t("common.info"),
+                                    i18n.t("msg.no_book_opened"))
+            return
+        queue = self.ensure_speech_spans()
+        if queue is None:
+            QMessageBox.warning(self, i18n.t("common.warning"),
+                                i18n.t("msg.tts_unavailable"))
+            return
+        if not queue.sentence_count:
+            QMessageBox.information(self, i18n.t("common.info"),
+                                    i18n.t("msg.tts_empty"))
+            return
+        queue.toggle()
+
+    def stop_speech(self):
+        """停止朗读（记住当前句在哪，下次从这里接着读）"""
+        queue = self._tts_queue
+        if queue is not None:
+            queue.stop()
+
+    def previous_sentence(self):
+        """上一句"""
+        queue = self.ensure_speech_spans()
+        if queue is not None:
+            queue.previous_sentence()
+
+    def next_sentence(self):
+        """下一句"""
+        queue = self.ensure_speech_spans()
+        if queue is not None:
+            queue.next_sentence()
+
+    def speech_rate_up(self):
+        """朗读语速加快一档"""
+        self.step_speech_rate(1)
+
+    def speech_rate_down(self):
+        """朗读语速减慢一档"""
+        self.step_speech_rate(-1)
+
+    def step_speech_rate(self, step):
+        """语速加减一档（档位见 :data:`enm.ui.tts_bar.RATE_PRESETS`）"""
+        index = RATE_PRESETS.index(self.speech_rate()) + int(step)
+        index = max(0, min(len(RATE_PRESETS) - 1, index))
+        self.set_speech_rate(RATE_PRESETS[index])
+
+    def set_speech_rate(self, rate):
+        """设置朗读语速：写配置、刷新朗读条；正在读就重读当前句立即生效"""
+        rate = nearest_rate(rate)
+        self.config_manager.set("tts_rate", rate)
+        self.tts_bar.set_rate(rate)
+        queue = self._tts_queue
+        if queue is not None:
+            queue.set_rate(rate, restart=queue.state == SpeechQueue.PLAYING)
+
+    def toggle_speech_auto_next(self, checked):
+        """切换「读完这章自动读下一章」"""
+        enabled = bool(checked)
+        self.config_manager.set("tts_auto_next_chapter", enabled)
+        self.tts_bar.set_auto_next(enabled)
+        action = getattr(self, "speech_auto_next_action", None)
+        if action is not None:
+            action.setChecked(enabled)
+
+    def toggle_speech_highlight(self, checked):
+        """切换「朗读时高亮并滚动到当前句」"""
+        enabled = bool(checked)
+        self.config_manager.set("tts_highlight", enabled)
+        self.tts_bar.set_highlight(enabled)
+        action = getattr(self, "speech_highlight_action", None)
+        if action is not None:
+            action.setChecked(enabled)
+        # 关掉就把高亮清掉，打开就按当前句重新标上
+        self.apply_speech_highlight(self._tts_highlight_index)
+
+    def has_next_chapter(self):
+        """后面还有章节吗（文件夹模式下取当前内层文件）"""
+        reader = self.current_reader
+        if reader is None:
+            return False
+        if isinstance(reader, FolderReader):
+            reader = reader.get_current_reader()
+        if reader is None:
+            return False
+        try:
+            return reader.current_chapter < reader.get_chapter_count() - 1
+        except Exception:
+            return False
+
+    def shutdown_speech(self):
+        """停掉朗读并释放引擎（关窗口时调用）"""
+        queue = self._tts_queue
+        self._tts_queue = None
+        self._tts_backend = None
+        self._tts_voice_pending = ""
+        if queue is None:
+            return
+        try:
+            queue.shutdown()
+        except Exception as e:
+            self.logger.log(f"释放朗读引擎失败: {e}", "WARN")
+
+    # ---- 高亮 ----
+
+    def apply_speech_highlight(self, index):
+        """高亮正在朗读的那一句，并（可选）滚动到它"""
+        display = self.reader_display
+        span = None
+        queue = self._tts_queue
+        if queue is not None and index >= 0:
+            spans = queue.spans
+            if 0 <= index < len(spans):
+                span = spans[index]
+        if span is None or not self.speech_highlight_enabled():
+            self._tts_highlight_index = -1
+            if display.extraSelections():
+                display.setExtraSelections([])
+            return
+
+        self._tts_highlight_index = index
+        document = display.document()
+        last = max(0, document.characterCount() - 1)
+        cursor = QTextCursor(document)
+        cursor.setPosition(min(span.start, last))
+        cursor.setPosition(min(span.end, last), QTextCursor.KeepAnchor)
+        selection = QTextEdit.ExtraSelection()
+        selection.cursor = cursor
+        text_format = QTextCharFormat()
+        text_format.setBackground(QColor(self.speech_highlight_color()))
+        selection.format = text_format
+        display.setExtraSelections([selection])
+
+        if self.speech_auto_scroll_enabled():
+            # 光标挪到句首再让它可见：句子还在视野里时不会真的滚动，
+            # 所以不会每句都把页面猛拽一下
+            caret = QTextCursor(document)
+            caret.setPosition(min(span.start, last))
+            display.setTextCursor(caret)
+            display.ensureCursorVisible()
+
+    def speech_highlight_color(self):
+        """高亮底色：优先用主题的 highlight，其次 selection"""
+        theme = self._current_theme or {}
+        return (theme.get("highlight") or theme.get("selection")
+                or theme.get("accent") or "#E3F2FD")
+
+    # ---- 信号处理 ----
+
+    def on_speech_sentence_changed(self, index):
+        """换到第几句：刷新高亮、滚动与朗读条上的进度"""
+        self.apply_speech_highlight(index)
+        queue = self._tts_queue
+        total = queue.sentence_count if queue is not None else 0
+        self.tts_bar.set_position(index, total)
+
+    def on_speech_state_changed(self, state):
+        """朗读状态变化：刷新按钮文案与朗读条，并维护阅读时长计时"""
+        self._speech_state = state
+        self.tts_bar.set_state(state)
+        self._refresh_speech_action_text()
+        if state != SpeechQueue.IDLE:
+            return
+        # 停下来了就别留着上一句的底色，否则看起来像还在读
+        # （自动翻章接着读时会马上重新标上新章的第一句）
+        self.apply_speech_highlight(-1)
+        # 朗读期间用户换过语音的话，现在换掉（这时不在开口，不会打断句子）
+        if self._tts_voice_pending and self._tts_backend is not None:
+            pending, self._tts_voice_pending = self._tts_voice_pending, ""
+            self._tts_backend.set_voice(pending)
+        # 失焦状态下读完最后一句：到这里为止的时长结算掉，别继续空转计时
+        if not self.isActiveWindow():
+            self.finish_reading_session()
+            if (self.current_reader is not None
+                    and self.config_manager.get("auto_save", True)):
+                self.save_reading_progress()
+
+    def on_speech_finished(self):
+        """整章读完：开了「自动读下一章」就翻章接着读，否则就此停下"""
+        if not (self.speech_auto_next_enabled() and self.has_next_chapter()):
+            self.logger.log("朗读完毕")
+            return
+        # 自动翻章时别恢复上一章的章内位置，否则新章会跳到中间去
+        self._pending_scroll_percent = 0.0
+        self._tts_continues = True
+        try:
+            self.next_chapter()
+        finally:
+            # sync_speech_content 正常会把它清掉，这里是「翻章没换成」的兜底
+            self._tts_continues = False
+
+    def on_speech_failed(self, message):
+        """朗读出错：提示一次并复位界面"""
+        self.logger.log(f"朗读失败: {message}", "ERROR")
+        self.apply_speech_highlight(-1)
+        self.tts_bar.set_state(SpeechQueue.IDLE)
+        self._speech_state = SpeechQueue.IDLE
+        self._refresh_speech_action_text()
+        QMessageBox.warning(self, i18n.t("common.warning"), message)
+
+    def _speech_play_key(self):
+        """「开始 / 暂停 / 继续朗读」的文案键（随播放状态变，交给 bind_text 复用）"""
+        if self._speech_state == SpeechQueue.PLAYING:
+            return "menu.tts_pause"
+        if self._speech_state == SpeechQueue.PAUSED:
+            return "menu.tts_resume"
+        return "menu.tts_play"
+
+    def _refresh_speech_action_text(self):
+        """刷新「开始 / 暂停朗读」动作的文案与提示（它随状态变，不在 bind 里）"""
+        action = self._actions.get("tts.play_pause")
+        if action is None:
+            return
+        action.setText(i18n.t(self._speech_play_key()))
+        self.update_action_hint("tts.play_pause")
+
+    def _connect_speech_bar(self):
+        """朗读条按钮 / 开关 → 朗读逻辑"""
+        bar = self.tts_bar
+        bar.play_clicked.connect(self.toggle_speech)
+        bar.stop_clicked.connect(self.stop_speech)
+        bar.previous_clicked.connect(self.previous_sentence)
+        bar.next_clicked.connect(self.next_sentence)
+        bar.rate_changed.connect(self.set_speech_rate)
+        bar.auto_next_changed.connect(self.toggle_speech_auto_next)
+        bar.highlight_changed.connect(self.toggle_speech_highlight)
+        for action_id, widget in bar.shortcut_widgets().items():
+            self.bind_hint(widget, action_id)
+
     def closeEvent(self, event):
         """关闭事件"""
         # 保存窗口设置
@@ -2293,6 +2835,9 @@ class NovelMaster(QMainWindow):
         # 停止自动保存定时器
         self.auto_save_timer.stop()
         self.sidebar_width_timer.stop()
+
+        # 停掉朗读并释放系统语音引擎（不释放的话进程可能压在句子里退不掉）
+        self.shutdown_speech()
         
         # 释放阅读器（清理 ZIP/JAR/MOBI 等解压出来的临时文件）
         self.release_current_reader()
@@ -2302,6 +2847,10 @@ class NovelMaster(QMainWindow):
 
     def release_current_reader(self):
         """释放当前阅读器及其占用的临时资源"""
+        # 先停朗读：句子表是按旧书的文档切出来的，留着会念错内容
+        # （关窗口时 shutdown_speech 已经跑过，这里是换书路径）
+        self.stop_speech()
+
         reader = getattr(self, "current_reader", None)
         if reader is None:
             return

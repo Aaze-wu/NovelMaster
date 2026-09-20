@@ -41,6 +41,16 @@
     "goto_chapter": "Go to Chapter...",
     "chapter_start": "Go to Chapter Start",
     "chapter_end": "Go to Chapter End",
+    "tts": "Speech",
+    "tts_play": "Start Reading Aloud",
+    "tts_pause": "Pause Reading",
+    "tts_resume": "Resume Reading",
+    "tts_stop": "Stop Reading",
+    "tts_prev_sentence": "Previous Sentence",
+    "tts_next_sentence": "Next Sentence",
+    "tts_voice": "Reading Voice",
+    "tts_auto_next": "Continue to the Next Chapter",
+    "tts_highlight": "Highlight the Current Sentence",
     "settings": "Settings",
     "theme": "Theme",
     "theme_light": "Light Theme",
@@ -104,7 +114,40 @@
     "file_missing": "File Not Found",
     "file_missing_detail": "{path}\n\nThe file may have been moved or deleted.",
     "no_displayable_content": "This file has no displayable content.",
-    "no_displayable_content_folder": "Cannot read this file, or it has no displayable content."
+    "no_displayable_content_folder": "Cannot read this file, or it has no displayable content.",
+    "tts_unavailable": "No speech engine is available on this computer, so reading aloud cannot be used.",
+    "tts_empty": "This chapter has no text to read aloud (it may contain images only)."
+  },
+  "tts": {
+    "play": "Read Aloud",
+    "pause": "Pause",
+    "resume": "Resume",
+    "stop": "Stop",
+    "previous_sentence": "Previous",
+    "next_sentence": "Next",
+    "rate": {
+      "label": "Speed",
+      "very_slow": "Slowest",
+      "slow": "Slow",
+      "normal": "Normal",
+      "fast": "Fast",
+      "very_fast": "Fastest"
+    },
+    "voice": {
+      "none": "(no voice available)"
+    },
+    "auto_next_chapter": "Next chapter",
+    "highlight": "Follow highlight",
+    "state": {
+      "playing": "Speaking",
+      "paused": "Paused",
+      "idle": "Stopped",
+      "position": "sentence {index}/{total}"
+    },
+    "error": {
+      "engine_failed": "The speech engine reported an error. Please try again.",
+      "speak_failed": "Cannot read aloud: the system speech engine is unavailable."
+    }
   },
   "about": {
     "title": "About",
@@ -118,12 +161,14 @@
     "feature_theme": "Theme switching and customization",
     "feature_i18n": "Multi-language support",
     "feature_shortcuts": "Customizable keyboard shortcuts",
-    "feature_ui": "Modern user interface"
+    "feature_ui": "Modern user interface",
+    "feature_tts": "Reading aloud with system voices (keeps reading while backgrounded, advances chapters)"
   },
   "shortcut": {
     "group": {
       "file": "File",
       "nav": "Navigation",
+      "audio": "Speech",
       "view": "Interface",
       "theme": "Theme & Settings"
     },
@@ -177,6 +222,30 @@
       "nav_chapter_end": {
         "label": "Chapter End",
         "hint": "Jump to the end of this chapter"
+      },
+      "tts_play_pause": {
+        "label": "Start/Pause Reading",
+        "hint": "Works when the reading area has focus (Space)"
+      },
+      "tts_stop": {
+        "label": "Stop Reading",
+        "hint": "Stop and rewind to the start of the current sentence (unbound by default)"
+      },
+      "tts_prev_sentence": {
+        "label": "Previous Sentence",
+        "hint": "Go back one sentence; restarts the current one right after speaking starts"
+      },
+      "tts_next_sentence": {
+        "label": "Next Sentence",
+        "hint": "Skip to the next sentence when the reader runs ahead of you"
+      },
+      "tts_rate_up": {
+        "label": "Speak Faster",
+        "hint": "Step the speaking rate up (slowest to fastest)"
+      },
+      "tts_rate_down": {
+        "label": "Speak Slower",
+        "hint": "Step the speaking rate down (fastest to slowest)"
       },
       "view_toggle_sidebar": {
         "label": "Show/Hide Chapter List",

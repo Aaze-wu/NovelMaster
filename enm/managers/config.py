@@ -36,6 +36,20 @@ class ConfigManager:
             # * typography_follow_theme —— 允许主题自带的字体/字号/行距覆盖全局设置
             "titlebar_follow_theme": False,
             "typography_follow_theme": False,
+            # 朗读（v1.3.5）：
+            # * tts_rate —— 语速档位（-1.0 很慢 / 0.0 正常 / 1.0 很快）
+            # * tts_voice_name —— 用户手动指定的语音 id（空 = 按界面语言自动挑）
+            # * tts_auto_next_chapter —— 读完这章自动接着读下一章
+            # * tts_highlight —— 高亮正在朗读的那一句
+            # * tts_auto_scroll —— 跟着高亮自动滚动（关掉只高亮不滚屏）
+            # * tts_split_max_chars —— 单句最长字数，超长句子会在标点处再切一刀
+            "tts_rate": 0.0,
+            "tts_volume": 1.0,
+            "tts_voice_name": "",
+            "tts_auto_next_chapter": True,
+            "tts_highlight": True,
+            "tts_auto_scroll": True,
+            "tts_split_max_chars": 120,
             "shortcuts": {}
         }
         self.config = self.load_config()
