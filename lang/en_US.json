@@ -303,7 +303,14 @@
       "view": "Interface",
       "theme": "Theme & Settings"
     },
-    "hint": "Note: Ctrl combinations work anywhere in the window; arrow keys and page keys only work when the reading area has focus.\nClick a key field and press the new shortcut to rebind it; press Delete to clear a binding.",
+    "hint": "Note: Ctrl combinations work anywhere in the window; arrow keys and page keys only work when the reading area has focus.\nClick a key field and press the new shortcut to rebind it; press Delete to clear a binding. The drop-down to the right binds a mouse side or middle button to the same action.",
+    "mouse": {
+      "hint": "Bind the mouse back / forward button or the middle button to this action. It is saved separately from the keyboard binding, so one action can have both.",
+      "default": "Default: {keys}",
+      "back": "Mouse Back",
+      "forward": "Mouse Forward",
+      "middle": "Mouse Middle"
+    },
     "default": "Default: {keys}",
     "reset_tooltip": "Restore the default shortcut for \"{label}\"",
     "conflict_title": "Shortcut Conflict",

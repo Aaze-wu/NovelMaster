@@ -4,8 +4,13 @@
     NovelMaster 基本打包脚本（PowerShell 版，对应 build.bat）。
 
 .DESCRIPTION
-    使用 Nuitka 将 NovelMaster 打包为单文件可执行程序
-    （--standalone --onefile）。脚本会自动检测 Nuitka，缺失时尝试安装。
+    使用 Nuitka 将 NovelMaster 打包为「独立目录版」可执行程序
+    （--standalone，不带 --onefile），产物为输出目录下的 NovelMaster.dist 文件夹。
+    脚本会自动检测 Nuitka，缺失时尝试安装。
+
+    目录版启动更快、不需要每次解压到临时目录，也是生成安装包的前提
+    （Inno Setup 脚本按 dist\NovelMaster.dist 组织文件）。
+    若要「打包 + 出安装包」一次完成，请用 release.ps1 / release-advanced.ps1。
 
 .PARAMETER Python
     指定用于打包的 Python 解释器，三种写法都支持：版本号（3.13 / 3.13.6）、
@@ -747,7 +752,6 @@ Write-Host ''
 $nuitkaArgs = @(
     '-m', 'nuitka'
     '--standalone'
-    '--onefile'
     '--windows-console-mode=disable'
     "--output-dir=$OutputDirPath"
 )
@@ -851,12 +855,30 @@ if ($exitCode -ne 0) {
 
 Write-Ok '打包完成！'
 Write-Host ''
-Write-Host "输出文件: $(Join-Path $OutputDirPath "$AppName.exe")"
+
+$distDir = Join-Path $OutputDirPath "$AppName.dist"
+$exePath = Join-Path $distDir "$AppName.exe"
+
+if (Test-Path -LiteralPath $exePath) {
+    $exeSize = (Get-Item -LiteralPath $exePath).Length
+    Write-Host "输出目录  : $distDir"
+    Write-Host ('  可执行文件: {0} ({1:N2} MB)' -f $exePath, ($exeSize / 1MB))
+
+    $dirSize = (Get-ChildItem -LiteralPath $distDir -Recurse -File -ErrorAction SilentlyContinue |
+            Measure-Object -Property Length -Sum).Sum
+    if ($dirSize) { Write-Host ('  目录总大小: {0:N2} MB' -f ($dirSize / 1MB)) }
+}
+else {
+    Write-Warn "未找到输出文件: $exePath"
+}
+
 Write-Host ''
 Write-Host '注意事项:'
-Write-Host '1. 首次运行可能需要几秒钟初始化'
-Write-Host '2. 确保目标计算机安装了必要的运行库'
+Write-Host "1. 目录版要整个 $AppName.dist 文件夹一起分发，不能只拷 exe"
+Write-Host '2. 首次运行可能需要几秒钟初始化'
 Write-Host '3. 程序数据将保存在用户 AppData 目录'
+Write-Host "4. 直接运行 $AppName\$AppName.exe 启动程序"
+Write-Host '5. 需要安装包请用 release.ps1（打包 + Inno Setup 一体）'
 Write-Host ''
 
 # ---------------- 收尾 ----------------

@@ -944,15 +944,28 @@ if ($Mode -eq 'onefile') {
     }
 }
 else {
-    Write-Host "  输出目录: $(Join-Path $OutputDirPath $AppName)"
+    $distDirPath = Join-Path $OutputDirPath "$AppName.dist"
+    $distExePath = Join-Path $distDirPath "$AppName.exe"
+    Write-Host "  输出目录: $distDirPath"
+    if (Test-Path -LiteralPath $distExePath) {
+        $sizeMb = (Get-Item -LiteralPath $distExePath).Length / 1MB
+        Write-Host ('  可执行文件: {0} ({1:N2} MB)' -f $distExePath, $sizeMb)
+    }
+    else {
+        Write-Warn "未找到输出文件: $distExePath"
+    }
+    $dirSize = (Get-ChildItem -LiteralPath $distDirPath -Recurse -File -ErrorAction SilentlyContinue |
+        Measure-Object -Property Length -Sum).Sum
+    if ($dirSize) { Write-Host ('  目录总大小: {0:N2} MB' -f ($dirSize / 1MB)) }
 }
 
 Write-Host ''
 Write-Host '使用说明:'
 Write-Host "1. 单文件模式: 直接运行 $AppName.exe"
-Write-Host "2. 独立目录模式: 运行 $AppName\$AppName.exe"
-Write-Host '3. 首次运行可能需要几秒钟初始化'
-Write-Host '4. 程序数据保存在用户 AppData 目录'
+Write-Host "2. 独立目录模式: 运行 $AppName.dist\$AppName.exe（发布时需整个文件夹一起交付）"
+Write-Host '3. 需要安装包时用 release.ps1 / release.bat（会自动调 build-advanced.ps1）'
+Write-Host '4. 首次运行可能需要几秒钟初始化'
+Write-Host '5. 程序数据保存在用户 AppData 目录'
 Write-Host ''
 
 $shouldOpen = [bool]$OpenOutput

@@ -7,9 +7,10 @@ from pathlib import Path
 from PyQt5.QtCore import QEvent, Qt, QTimer
 from PyQt5.QtGui import (QColor, QFont, QIcon, QImage, QKeySequence,
                          QTextCharFormat, QTextCursor)
-from PyQt5.QtWidgets import (QAction, QApplication, QDialog, QFileDialog,
-                             QFontDialog, QHBoxLayout, QInputDialog, QLabel,
-                             QMainWindow, QMenu, QMessageBox, QProgressBar,
+from PyQt5.QtWidgets import (QAbstractSpinBox, QAction, QApplication, QComboBox,
+                             QDialog, QFileDialog, QFontDialog, QHBoxLayout,
+                             QInputDialog, QLabel, QLineEdit, QMainWindow, QMenu,
+                             QMessageBox, QPlainTextEdit, QProgressBar,
                              QPushButton, QSplitter, QTextEdit, QToolBar,
                              QTreeWidgetItem, QVBoxLayout, QWidget)
 
@@ -37,7 +38,7 @@ from ..readers import (SUPPORTED_EXTENSIONS, FolderReader, ReaderError,
                        format_chapter_html, supported_extensions_text)
 from ..shortcuts import (ACTION_DEFS, DEFS_BY_ID, READER, WINDOW,
                          ShortcutManager, event_key_sequence, key_sequence,
-                         label_of)
+                         label_of, mouse_token_of_event)
 from .book_merge_dialog import BookMergeDialog
 from .chapter_tree import ChapterTree
 from .continue_dialog import ContinueReadingDialog
@@ -139,6 +140,12 @@ class NovelMaster(QMainWindow):
         # 按生效范围缓存的绑定快照，供阅读区按键过滤使用
         self._window_bindings = {}
         self._reader_bindings = {}
+        # 动作 id -> 鼠标记号（鼠标键不分 scope，详见 handle_mouse_shortcut）
+        self._mouse_bindings = {}
+        # 去抖用：鼠标键没有 isAutoRepeat，某些鼠标 / 驱动按住会连发 Press，
+        # 这里记下上一次触发的是哪个记号、什么时候（对应用键盘时的长按保护）
+        self._mouse_last_token = ""
+        self._mouse_last_time = 0.0
         self._snapshot_bindings()
         
         # 当前阅读器
@@ -370,6 +377,11 @@ class NovelMaster(QMainWindow):
         self.reader_display.customContextMenuRequested.connect(
             self.show_reader_context_menu)
         self.reader_display.viewport().installEventFilter(self)
+        # 鼠标侧键 / 中键：装在应用上（而不是某一个控件上），这样窗口里
+        # 任何位置按下都能触发；是否接受由 handle_mouse_shortcut 判断
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
     
     # ---------------- 多语言 ----------------
     
@@ -983,7 +995,7 @@ class NovelMaster(QMainWindow):
         text = i18n.t("common.label_with_keys",
                       default="{label}（{keys}）",
                       label=action.text(),
-                      keys=self.shortcut_manager.display(action_id))
+                      keys=self.shortcut_manager.display_all(action_id))
         action.setToolTip(text)
         action.setStatusTip(text)
     
@@ -1002,7 +1014,7 @@ class NovelMaster(QMainWindow):
         return i18n.t("common.label_with_keys",
                       default="{label}（{keys}）",
                       label=label,
-                      keys=self.shortcut_manager.display(action_id))
+                      keys=self.shortcut_manager.display_all(action_id))
     
     def _refresh_widget_hints(self):
         """刷新普通按钮 / 工具栏动作的提示文本"""
@@ -1020,6 +1032,13 @@ class NovelMaster(QMainWindow):
             target = (self._reader_bindings if definition.scope == READER
                       else self._window_bindings)
             target[definition.action_id] = key_sequence(text)
+        # 鼠标键单独缓存：鼠标没有「焦点」概念，只看主窗口在不在前台，
+        # 所以不按 scope 分桶（见 handle_mouse_shortcut）
+        self._mouse_bindings = {}
+        for definition in ACTION_DEFS:
+            token = self.shortcut_manager.mouse_token_of(definition.action_id)
+            if token:
+                self._mouse_bindings[definition.action_id] = token
     
     def refresh_shortcuts(self):
         """改键后重新套用全部快捷键"""
@@ -1037,17 +1056,95 @@ class NovelMaster(QMainWindow):
         self.refresh_shortcuts()
         self.logger.log("快捷键设置已更新")
     
+    # 鼠标键落在这些可编辑控件里时不触发动作：鼠标按在输入框 / 微调框 /
+    # 下拉框 / 可编辑文本区里是「放光标 / 选内容」，不该顺手翻一章
+    EDITABLE_TEXT_TYPES = (QLineEdit, QAbstractSpinBox, QComboBox)
+
+    #: 同一个鼠标键两次触发之间的最短间隔（秒）：按住侧键时连发的 Press 会被
+    #: 去抖掉（值很小，人手快速连点不会受影响）
+    MOUSE_REPEAT_GUARD = 0.06
+
+    def _mouse_action_for(self, token):
+        """鼠标记号 → 动作 id（没有绑过就返回空字符串）"""
+        for action_id, binding in self._mouse_bindings.items():
+            if binding == token:
+                return action_id
+        return ""
+
+    def _inside_editable_text(self, widget):
+        """按下的位置是否落在可编辑控件里（沿父链往上找）"""
+        node = widget
+        while node is not None:
+            if isinstance(node, self.EDITABLE_TEXT_TYPES):
+                return True
+            if (isinstance(node, (QTextEdit, QPlainTextEdit))
+                    and not node.isReadOnly()):
+                return True
+            # 走到窗口（阅读区的 QTextEdit 是只读的，不拦）就不必再往上
+            if node.isWindow():
+                return False
+            node = node.parentWidget()
+        return False
+
+    def _mouse_shortcut_allowed(self, obj):
+        """这次鼠标按下要不要当成快捷键处理
+
+        鼠标键没有「焦点」这个概念，所以只要求主窗口是当前活动窗口：
+        对话框、弹出菜单开着的时候按侧键不会顺手把章节翻掉。
+        """
+        if not isinstance(obj, QWidget):
+            return False
+        app = QApplication.instance()
+        if app is None or app.activeWindow() is not self:
+            return False
+        if obj is not self and not self.isAncestorOf(obj):
+            return False
+        return not self._inside_editable_text(obj)
+
+    def handle_mouse_shortcut(self, obj, event):
+        """鼠标键（侧键 / 中键）派发：绑定了就触发对应动作
+
+        返回 ``True`` 表示事件已经用掉（不要再给控件处理）。
+        """
+        token = mouse_token_of_event(event)
+        if not token or not self._mouse_shortcut_allowed(obj):
+            return False
+        now = time.monotonic()
+        if (token == self._mouse_last_token
+                and now - self._mouse_last_time < self.MOUSE_REPEAT_GUARD):
+            # 同一下按键的连发（按住侧键）：当成已处理，但不再触发
+            return True
+        action_id = self._mouse_action_for(token)
+        if not action_id:
+            return False
+        self._mouse_last_token = token
+        self._mouse_last_time = now
+        handler = self._reader_handlers.get(action_id)
+        if handler is not None:
+            handler()
+            return True
+        action = self._actions.get(action_id)
+        if action is None or not action.isEnabled():
+            return False
+        action.trigger()
+        return True
+
     def eventFilter(self, obj, event):
-        """阅读区按键过滤
-        
+        """阅读区按键过滤 + 鼠标键派发
+
+        * ``MouseButtonPress``：鼠标侧键 / 中键绑了快捷键就派发（应用级过滤器）；
         * ``ShortcutOverride``：把 Ctrl+Home / Ctrl+End 这类按键放行给窗口级快捷键，
           否则会被 ``QTextEdit`` 自带的「文档首 / 文档尾」吃掉；
         * ``KeyPress``：派发只在阅读区生效的按键（方向键、翻页键）。
         """
+        if event.type() == QEvent.MouseButtonPress:
+            if self.handle_mouse_shortcut(obj, event):
+                return True
+
         display = getattr(self, "reader_display", None)
         if display is None or obj not in (display, display.viewport()):
             return super().eventFilter(obj, event)
-        
+
         if event.type() == QEvent.ShortcutOverride:
             sequence = event_key_sequence(event)
             for binding in self._window_bindings.values():
