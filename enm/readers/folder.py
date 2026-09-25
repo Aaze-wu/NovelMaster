@@ -21,17 +21,32 @@ class FolderReader(BaseReader):
     def scan_folder(self):
         """扫描文件夹中的支持文件"""
         supported_extensions = SUPPORTED_EXTENSIONS
-        
+
         for file_path in self.folder_path.rglob('*'):
-            if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
-                self.files.append({
-                    'path': file_path,
-                    'name': file_path.name,
-                    'type': file_path.suffix.lower()
-                })
-        
+            if not file_path.is_file():
+                continue
+
+            extension = file_path.suffix.lower()
+            if extension not in supported_extensions:
+                continue
+            if extension == '.jad' and self._jar_beside(file_path):
+                continue        # .jad 只是描述文件，正文在同名 .jar 里，别重复收录
+
+            self.files.append({
+                'path': file_path,
+                'name': file_path.name,
+                'type': extension
+            })
+
         # 按文件名排序
         self.files.sort(key=lambda x: x['name'])
+
+    @staticmethod
+    def _jar_beside(file_path):
+        """同名 .jar 是否就在旁边（是的话这个 .jad 不用单独收录）"""
+        return any(sibling.is_file()
+                   for sibling in (file_path.with_suffix('.jar'),
+                                   file_path.with_suffix('.JAR')))
     
     def get_file_count(self):
         return len(self.files)

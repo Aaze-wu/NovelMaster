@@ -11,7 +11,7 @@ from pathlib import Path
 from .. import i18n
 from ..constants import DEBUG_MODE
 from ..logger import logger
-from .archive import JarReader, ZipReader
+from .archive import JadReader, JarReader, ZipReader
 from .base import ReaderError
 from .docx import DocxReader
 from .epub import EpubReader
@@ -39,6 +39,7 @@ EXTENSION_READERS = {
     '.htm': HtmlReader,
     '.xhtml': HtmlReader,
     '.jar': JarReader,
+    '.jad': JadReader,
     '.zip': ZipReader,
 }
 
@@ -57,9 +58,10 @@ def get_reader_class(extension):
 
 # 文件对话框中的分组过滤器（组名在语言文件的 filter.* 里）
 FORMAT_GROUPS = (
-    ("filter.ebooks", ('.epub', '.mobi', '.azw', '.azw3', '.prc', '.umd', '.fb2')),
+    ("filter.ebooks", ('.epub', '.mobi', '.azw', '.azw3', '.prc', '.umd', '.fb2',
+                       '.jar', '.jad')),
     ("filter.documents", ('.pdf', '.docx', '.txt', '.html', '.htm', '.xhtml')),
-    ("filter.archives", ('.jar', '.zip')),
+    ("filter.archives", ('.zip',)),
 )
 
 

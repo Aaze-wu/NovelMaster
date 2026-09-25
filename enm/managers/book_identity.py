@@ -35,7 +35,7 @@ import unicodedata
 # 验证脚本里有一条断言盯着它别跟注册表漂移。
 EBOOK_EXTENSIONS = frozenset((
     ".epub", ".txt", ".pdf", ".mobi", ".azw", ".azw3", ".prc", ".docx",
-    ".fb2", ".umd", ".html", ".htm", ".xhtml", ".jar", ".zip",
+    ".fb2", ".umd", ".html", ".htm", ".xhtml", ".jar", ".jad", ".zip",
 ))
 
 # 书名号：只是包裹，不算注释，直接去掉
