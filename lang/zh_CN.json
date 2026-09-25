@@ -61,6 +61,7 @@
     "theme_custom_empty": "（暂无自定义主题）",
     "theme_manager": "主题管理...",
     "font_settings": "字体设置",
+    "typography_settings": "排版设置",
     "font_increase": "字体增大",
     "font_decrease": "字体减小",
     "restore_scroll": "记住章内阅读位置",
@@ -95,7 +96,8 @@
     "goto_chapter": "转到章节",
     "goto_chapter_prompt": "请输入章节序号（1 - {total}）：",
     "continue_reading": "继续阅读 - {app}",
-    "shortcut_settings": "快捷键设置"
+    "shortcut_settings": "快捷键设置",
+    "typography_settings": "排版设置"
   },
   "filter": {
     "supported": "支持的文件",
@@ -117,6 +119,12 @@
     "no_displayable_content_folder": "无法读取该文件或文件中没有可显示的内容。",
     "tts_unavailable": "这台电脑上没有可用的语音引擎，朗读功能无法使用。",
     "tts_empty": "这一章没有可朗读的文字（可能只有图片）。"
+  },
+  "typography": {
+    "hint": "行距与段间距作用在阅读区正文上。段间距是相邻两段之间的空白（像素），Qt 自带约 24，所以填 24 就是原来的样子。",
+    "line_spacing_label": "行距（倍数）:",
+    "paragraph_spacing_label": "段间距:",
+    "locked": "{fields} 当前由使用的主题决定（「排版跟随主题」已打开且主题自带这两项），想在这里自己调，请先关闭那个开关。"
   },
   "tts": {
     "play": "开始朗读",
@@ -263,6 +271,10 @@
         "label": "字体设置",
         "hint": "打开字体选择对话框"
       },
+      "view_typography_dialog": {
+        "label": "排版设置",
+        "hint": "打开行距 / 段间距设置对话框"
+      },
       "view_theme_light": {
         "label": "浅色主题",
         "hint": "切换到浅色主题"
@@ -404,11 +416,12 @@
     "reader_label": "阅读区底色:",
     "auto_placeholder": "留空 = 自动",
     "auto_tooltip": "留空时按必需色自动推导一个合适的值",
-    "typography_follow": "这套主题同时指定字体 / 字号 / 行距",
-    "typography_hint": "不勾选则只保存配色，阅读区继续用「设置 → 字体设置」与全局字号行距；勾选后还需要打开「排版跟随主题」才会真正生效。",
+    "typography_follow": "这套主题同时指定字体 / 字号 / 行距 / 段间距",
+    "typography_hint": "不勾选则只保存配色，阅读区继续用「设置 → 字体设置 / 排版设置」里的全局排版；勾选后还需要打开「排版跟随主题」才会真正生效。",
     "font_family_label": "字体:",
     "font_size_label": "字号:",
-    "line_spacing_label": "行距:",
+    "line_spacing_label": "行距（倍数）:",
+    "paragraph_spacing_label": "段间距:",
     "choose_color": "选择{field}",
     "choose_color_tooltip": "点击打开取色器",
     "live_hint": "提示：输入框里可以直接填 #RRGGBB；带「留空 = 自动」提示的字段留空就按必需色推导。右侧预览用的就是主窗口那份样式表，所见即所得。",
@@ -428,6 +441,7 @@
     "invalid_font_family": "字体名称无效：{value}",
     "invalid_font_size": "字号必须在 {min}~{max} 之间，当前为：{value}",
     "invalid_line_spacing": "行距必须在 {min}~{max} 之间，当前为：{value}",
+    "invalid_paragraph_spacing": "段间距必须在 {min}~{max} 像素之间，当前为：{value}",
     "unknown_fields": "已忽略无法识别的字段：{fields}",
     "empty_name": "主题名称不能为空。",
     "reserved_name": "「{name}」是内置主题的名称，请换一个名字。",

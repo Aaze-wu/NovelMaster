@@ -97,6 +97,8 @@ ACTION_DEFS = (
                 "阅读区字号 -1"),
     ShortcutDef("view.font_dialog", "字体设置", GROUP_THEME, "Ctrl+Shift+F",
                 WINDOW, "打开字体选择对话框"),
+    ShortcutDef("view.typography_dialog", "排版设置", GROUP_THEME,
+                "Ctrl+Shift+P", WINDOW, "打开行距 / 段间距设置对话框"),
     ShortcutDef("view.theme_light", "浅色主题", GROUP_THEME, "Ctrl+Shift+L",
                 WINDOW, "切换到浅色主题"),
     ShortcutDef("view.theme_dark", "深色主题", GROUP_THEME, "Ctrl+Shift+D",

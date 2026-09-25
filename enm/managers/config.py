@@ -14,7 +14,12 @@ class ConfigManager:
             "language": "zh_CN",
             "font_family": "Microsoft YaHei",
             "font_size": 16,
+            # 行距（倍数）/ 段间距（像素）。这两个值以前只存在配置里不生效：
+            # Qt 样式表不支持 line-height，现在由 enm.ui.reader_typography 的
+            # 块格式真正套到文档上（段间距上下边距各分一半，所以两个相邻
+            # 段落之间的间隙就是它；24 = Qt 自带 <p> 边距，即默认外观）
             "line_spacing": 1.8,
+            "paragraph_spacing": 24,
             "auto_save": True,
             "auto_save_interval": 30,
             "recent_files": [],
@@ -33,7 +38,8 @@ class ConfigManager:
             # 以下两个开关都默认关闭：
             # * titlebar_follow_theme —— 让 Windows 原生标题栏跟着主题的 titlebar
             #   颜色走（Win11 22H2+ 生效；更老的系统只切深浅模式）
-            # * typography_follow_theme —— 允许主题自带的字体/字号/行距覆盖全局设置
+            # * typography_follow_theme —— 允许主题自带的字体/字号/行距/段间距
+            #   覆盖全局设置
             "titlebar_follow_theme": False,
             "typography_follow_theme": False,
             # 朗读（v1.3.5）：

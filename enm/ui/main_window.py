@@ -16,8 +16,11 @@ from PyQt5.QtWidgets import (QAction, QApplication, QDialog, QFileDialog,
 from .. import i18n
 from ..constants import (AUTHOR_NAME, DEBUG_MODE, ICON_PATH, PROJECT_NAME,
                          VERSION)
-from ..managers import (ConfigManager, DEFAULT_THEME, ReadingProgressManager,
-                        ThemeManager, format_timestamp, is_dark,
+from ..managers import (ConfigManager, DEFAULT_PARAGRAPH_SPACING,
+                        DEFAULT_LINE_SPACING, DEFAULT_THEME,
+                        ReadingProgressManager, TYPO_FIELDS, ThemeManager,
+                        format_timestamp, is_dark, normalise_font_size,
+                        normalise_line_spacing, normalise_paragraph_spacing,
                         record_covers_file, record_file_key, split_file_key)
 from ..managers.book_identity import (FINGERPRINT_SAMPLE, build_identity,
                                       chapter_index_in,
@@ -37,6 +40,7 @@ from .continue_dialog import ContinueReadingDialog
 from .dialog_help_button import install as install_dialog_help_filter
 from .dialog_titlebar import install as install_dialog_titlebar_filter
 from .qt_translations import install as install_qt_translations
+from .reader_typography import apply_reader_typography
 from .shortcut_dialog import ShortcutSettingsDialog
 from .theme_dialog import describe_theme_errors, theme_display_label
 from .theme_manager_dialog import ThemeManagerDialog
@@ -45,6 +49,7 @@ from .theme_qss import (SPLITTER_HANDLE_WIDTH, build_palette,
 from .titlebar import (apply_dark_mode, apply_titlebar_theme, available,
                        reset_titlebar_theme)
 from .tts_bar import RATE_PRESETS, TtsBar, nearest_rate
+from .typography_dialog import TypographySettingsDialog
 from ..logger import logger
 
 # 阅读区字号范围（字体增大 / 减小用）
@@ -529,6 +534,12 @@ class NovelMaster(QMainWindow):
         self.make_action("menu.font_decrease", self.decrease_font_size,
                          "view.font_dec")
         settings_menu.addAction(self._actions["view.font_dec"])
+
+        # 排版设置（行距 / 段间距；字体与字号在上面那条原生字体对话框里）
+        self.make_action("menu.typography_settings",
+                         self.open_typography_dialog,
+                         "view.typography_dialog")
+        settings_menu.addAction(self._actions["view.typography_dialog"])
         
         # 记住章内阅读位置
         self.restore_scroll_action = self.make_action(
@@ -548,7 +559,7 @@ class NovelMaster(QMainWindow):
             self.titlebar_action.setEnabled(False)
         settings_menu.addAction(self.titlebar_action)
 
-        # 允许主题自带的字体 / 字号 / 行距覆盖全局阅读设置
+        # 允许主题自带的字体 / 字号 / 行距 / 段间距覆盖全局阅读设置
         self.typography_action = self.make_action(
             "menu.typography_follow", self.toggle_typography_follow)
         self.typography_action.setCheckable(True)
@@ -804,17 +815,18 @@ class NovelMaster(QMainWindow):
         样式表刷不到，深色主题下会留浅色底。设到应用级是为了不漏掉这些
         不属于主窗口子树的控件（含 Qt 自带的顶层对话框）。
 
-        排版（字体 / 字号 / 行距）的优先级：``typography_follow_theme`` 打开且
-        主题自带排版 → 用主题的；否则 → 用 ``config.json`` 里的全局设置。
+        排版（字体 / 字号 / 行距 / 段间距）的优先级：``typography_follow_theme``
+        打开且主题自带排版 → 用主题的；否则 → 用 ``config.json`` 里的全局设置。
         """
         theme = self.theme_manager.get_theme(theme_name)
         self._current_theme = theme
 
-        family, size, spacing = self.resolve_typography(theme)
+        family, size, _spacing, _paragraph = self.resolve_typography(theme)
         if family:
             self.reader_display.setFont(QFont(family, size))
-        self.setStyleSheet(build_style_sheet(
-            theme, font_size=size, line_spacing=spacing))
+        self.setStyleSheet(build_style_sheet(theme, font_size=size))
+        # 行距 / 段间距样式表管不了（Qt 不支持 line-height），必须给文档套块格式
+        self.apply_reader_typography(keep_scroll=True)
         app = QApplication.instance()
         if app is not None:
             app.setPalette(build_palette(theme))
@@ -827,24 +839,75 @@ class NovelMaster(QMainWindow):
     # ---------------- 原生标题栏与主题排版 ----------------
 
     def resolve_typography(self, theme):
-        """当前该用的阅读排版 ``(font_family, font_size, line_spacing)``。
+        """当前该用的阅读排版。
 
-        主题自带排版且开了「排版跟随主题」时用主题的，否则一律用全局设置——
-        这样主题和设置菜单里的字体对话框不会互相抢控制权。
+        返回 ``(字体, 字号, 行距倍数, 段间距像素)``：主题自带排版且开了「排版
+        跟随主题」时用主题的，否则一律用全局设置——这样主题和设置菜单里的
+        字体 / 排版对话框不会互相抢控制权。逐项判定，所以只带了字体的主题
+        不会把行距一并接管。
         """
         family = self.config_manager.get("font_family", "Microsoft YaHei")
         size = int(self.config_manager.get("font_size", 16) or 16)
-        spacing = float(self.config_manager.get("line_spacing", 1.8) or 1.8)
+        spacing = normalise_line_spacing(
+            self.config_manager.get("line_spacing", DEFAULT_LINE_SPACING))
+        paragraph = normalise_paragraph_spacing(
+            self.config_manager.get("paragraph_spacing",
+                                    DEFAULT_PARAGRAPH_SPACING))
 
-        if not self.config_manager.get("typography_follow_theme", False):
-            return family, size, spacing
-        if not any(theme.get(field) for field in ("font_family", "font_size",
-                                                  "line_spacing")):
-            return family, size, spacing
+        following = self.config_manager.get("typography_follow_theme", False)
+        # 注意用 ``is not None``：段间距 0 是合法值，不能用真假判断
+        has_typography = any(theme.get(field) is not None
+                             for field in TYPO_FIELDS)
+        if not following or not has_typography:
+            return (family, size,
+                    spacing if spacing is not None else DEFAULT_LINE_SPACING,
+                    paragraph if paragraph is not None
+                    else DEFAULT_PARAGRAPH_SPACING)
 
+        theme_paragraph = normalise_paragraph_spacing(theme.get("paragraph_spacing"))
         return (theme.get("font_family") or family,
-                int(theme.get("font_size") or size),
-                float(theme.get("line_spacing") or spacing))
+                int(normalise_font_size(theme.get("font_size")) or size),
+                normalise_line_spacing(theme.get("line_spacing"))
+                or spacing or DEFAULT_LINE_SPACING,
+                (theme_paragraph if theme_paragraph is not None
+                 else (paragraph if paragraph is not None
+                       else DEFAULT_PARAGRAPH_SPACING)))
+
+    def resolve_typography_locks(self, theme=None):
+        """哪几项排版被主题接管了，返回 ``(行距, 段间距)`` 两个布尔值。
+
+        「排版设置」对话框靠它决定哪个输入框要禁用（改主题管着的值没意义）。
+        """
+        theme = theme if theme is not None else getattr(
+            self, "_current_theme", None) or {}
+        if not self.config_manager.get("typography_follow_theme", False):
+            return False, False
+        return (normalise_line_spacing(theme.get("line_spacing")) is not None,
+                normalise_paragraph_spacing(theme.get("paragraph_spacing")) is not None)
+
+    def apply_reader_typography(self, line_spacing=None, paragraph_spacing=None,
+                                keep_scroll=False):
+        """把行距 / 段间距套到阅读区文档上。
+
+        参数为 ``None`` 时用当前生效的排版（见 :meth:`resolve_typography`）。
+        换字体、换字号、换主题、重新 ``setHtml()`` 之后都必须再调一次：
+        ``setHtml`` 会把块格式一并冲掉（新建的文档没带行距信息）。
+
+        ``keep_scroll=True`` 会把滚动条位置按比例还原——改间距会让文档变高，
+        不还原的话阅读位置会跳得很难受。
+        """
+        if line_spacing is None or paragraph_spacing is None:
+            _family, _size, current_line, current_paragraph = \
+                self.resolve_typography(getattr(self, "_current_theme", None) or {})
+            line_spacing = current_line if line_spacing is None else line_spacing
+            paragraph_spacing = (current_paragraph if paragraph_spacing is None
+                                 else paragraph_spacing)
+
+        percent = self.current_scroll_percent() if keep_scroll else 0.0
+        apply_reader_typography(self.reader_display, line_spacing,
+                                paragraph_spacing)
+        if keep_scroll:
+            self.apply_scroll_percent(percent)
 
     def titlebar_follow_enabled(self):
         """是否让 Windows 原生标题栏跟着主题走"""
@@ -1028,6 +1091,7 @@ class NovelMaster(QMainWindow):
             if not inner or inner.get_chapter_count() == 0:
                 self.reader_display.setHtml("<p>%s</p>" % i18n.t(
                     "msg.no_displayable_content_folder"))
+                self.apply_reader_typography()
                 self.update_progress()
                 # 正文没了：同步一次，别让朗读继续读上一本书
                 self.sync_speech_content()
@@ -1044,6 +1108,7 @@ class NovelMaster(QMainWindow):
             if reader.get_chapter_count() == 0:
                 self.reader_display.setHtml("<p>%s</p>" % i18n.t(
                     "msg.no_displayable_content"))
+                self.apply_reader_typography()
                 self.update_progress()
                 self.sync_speech_content()
                 return
@@ -1054,6 +1119,9 @@ class NovelMaster(QMainWindow):
             chapter_index = reader.current_chapter
         
         self.reader_display.setHtml(format_chapter_html(title, content))
+        # setHtml 会重建文档、顺便把块格式冲掉，行距 / 段间距得重新套（Qt 样式表
+        # 里的 line-height 是无效属性，间距只能这么做）
+        self.apply_reader_typography()
 
         # 图片自适应阅读区宽度（重新渲染章节时重置缓存）
         self._image_widths = {}
@@ -2161,10 +2229,48 @@ class NovelMaster(QMainWindow):
         # 主题样式表里也写了字号，改完字体要重新套用一次才生效
         self.apply_theme(self.config_manager.get("theme", "light"))
     
+    def open_typography_dialog(self):
+        """打开「排版设置」（行距 / 段间距）。
+
+        对话框只负责取值与实时试排；配置与阅读区由这里统一更新——按「取消」
+        时再把阅读区还原回原来的值，所以拖动数值不会脏掉配置。
+        """
+        original = (self.config_manager.get("line_spacing", DEFAULT_LINE_SPACING),
+                    self.config_manager.get("paragraph_spacing",
+                                            DEFAULT_PARAGRAPH_SPACING))
+        theme = getattr(self, "_current_theme", None)
+        line_locked, paragraph_locked = self.resolve_typography_locks(theme)
+
+        dialog = TypographySettingsDialog(
+            line_spacing=original[0], paragraph_spacing=original[1], parent=self,
+            ui_theme=self.theme_manager.get_theme(self.current_theme_name()),
+            titlebar_theme=self.dialog_titlebar_theme(),
+            line_follows_theme=line_locked,
+            paragraph_follows_theme=paragraph_locked)
+        dialog.preview_changed.connect(self.preview_typography)
+
+        accepted = dialog.exec_() == QDialog.Accepted
+        if not accepted:
+            # 取消：把试排结果丢掉，回到磁盘上的值
+            self.apply_reader_typography(keep_scroll=True)
+            return
+
+        spacing, paragraph = dialog.values()
+        self.config_manager.set("line_spacing", spacing)
+        self.config_manager.set("paragraph_spacing", paragraph)
+        # 重新套一遍：主题样式表要重算，排版也顺手刷新（含标题栏 / 高亮）
+        self.apply_theme(self.current_theme_name())
+        self.logger.log(f"排版设置: 行距 {spacing}、段间距 {paragraph}px")
+
+    def preview_typography(self, line_spacing, paragraph_spacing):
+        """排版设置对话框的实时试排（只动显示，不写配置）"""
+        self.apply_reader_typography(line_spacing, paragraph_spacing,
+                                     keep_scroll=True)
+
     def increase_font_size(self):
         """字体增大"""
         self._step_font_size(1)
-    
+
     def decrease_font_size(self):
         """字体减小"""
         self._step_font_size(-1)
@@ -2314,13 +2420,14 @@ class NovelMaster(QMainWindow):
     def open_theme_manager(self):
         """打开主题管理对话框（新建 / 编辑 / 复制 / 改名 / 删除 / 导入导出）"""
         current = self.current_theme_name()
-        family, size, spacing = self.resolve_typography(
+        family, size, spacing, paragraph = self.resolve_typography(
             self.theme_manager.get_theme(current))
         dialog = ThemeManagerDialog(
             self.theme_manager, current, self,
             ui_theme=self.theme_manager.get_theme(current),
             titlebar_theme=self.dialog_titlebar_theme(),
-            font_family=family, font_size=size, line_spacing=spacing)
+            font_family=family, font_size=size, line_spacing=spacing,
+            paragraph_spacing=paragraph)
         dialog.exec_()
         # 对话框只记录「之后要应用哪个主题」，配置与主窗口由这里统一更新
         self.theme_manager.reload()

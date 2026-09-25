@@ -61,6 +61,7 @@
     "theme_custom_empty": "（尚無自訂主題）",
     "theme_manager": "主題管理...",
     "font_settings": "字型設定",
+    "typography_settings": "排版設定",
     "font_increase": "字型增大",
     "font_decrease": "字型減小",
     "restore_scroll": "記住章內閱讀位置",
@@ -95,7 +96,8 @@
     "goto_chapter": "跳到章節",
     "goto_chapter_prompt": "請輸入章節序號（1 - {total}）：",
     "continue_reading": "繼續閱讀 - {app}",
-    "shortcut_settings": "快捷鍵設定"
+    "shortcut_settings": "快捷鍵設定",
+    "typography_settings": "排版設定"
   },
   "filter": {
     "supported": "支援的檔案",
@@ -117,6 +119,12 @@
     "no_displayable_content_folder": "無法讀取該檔案或檔案中沒有可顯示的內容。",
     "tts_unavailable": "這台電腦上沒有可用的語音引擎，朗讀功能無法使用。",
     "tts_empty": "這一章沒有可朗讀的文字（可能只有圖片）。"
+  },
+  "typography": {
+    "hint": "行距與段間距作用在閱讀區正文上。段間距是相鄰兩段之間的空白（像素），Qt 自帶約 24，所以填 24 就是原來的樣子。",
+    "line_spacing_label": "行距（倍數）:",
+    "paragraph_spacing_label": "段間距:",
+    "locked": "{fields} 目前由使用中的主題決定（「排版跟隨主題」已開啟且主題自帶這兩項），想在這裡自己調，請先關閉那個開關。"
   },
   "tts": {
     "play": "開始朗讀",
@@ -262,8 +270,10 @@
       "view_font_dialog": {
         "label": "字型設定",
         "hint": "開啟字型選擇對話方塊"
-      },
-      "view_theme_light": {
+      },      "view_typography_dialog": {
+        "label": "排版設定",
+        "hint": "開啟行距 / 段間距設定對話框"
+      },      "view_theme_light": {
         "label": "淺色主題",
         "hint": "切換到淺色主題"
       },
@@ -404,11 +414,12 @@
     "reader_label": "閱讀區底色:",
     "auto_placeholder": "留空 = 自動",
     "auto_tooltip": "留空時按必需色自動推導一個合適的值",
-    "typography_follow": "這套主題同時指定字型 / 字級 / 行距",
-    "typography_hint": "不勾選則只儲存配色，閱讀區繼續用「設定 → 字型設定」與全域字級行距；勾選後還需要開啟「排版跟隨主題」才會真正生效。",
+    "typography_follow": "這套主題同時指定字型 / 字級 / 行距 / 段間距",
+    "typography_hint": "不勾選則只儲存配色，閱讀區繼續用「設定 → 字型設定 / 排版設定」裡的全域排版；勾選後還需要開啟「排版跟隨主題」才會真正生效。",
     "font_family_label": "字型:",
     "font_size_label": "字級:",
-    "line_spacing_label": "行距:",
+    "line_spacing_label": "行距（倍數）:",
+    "paragraph_spacing_label": "段間距:",
     "choose_color": "選擇{field}",
     "choose_color_tooltip": "點擊開啟取色器",
     "live_hint": "提示：輸入框裡可以直接填 #RRGGBB；帶「留空 = 自動」提示的欄位留空就按必需色推導。右側預覽用的就是主視窗那份樣式表，所見即所得。",
@@ -424,9 +435,12 @@
   "theme_error": {
     "not_object": "檔案內容不是主題物件（應為一個 JSON 物件）。",
     "missing_field": "缺少欄位：{field}",
-    "invalid_color": "{field} 的顏色值無效：{value}（應為 #RGB 或 #RRGGBB）",    "invalid_font_family": "字型名稱無效：{value}",
+    "invalid_color": "{field} 的顏色值無效：{value}（應為 #RGB 或 #RRGGBB）",
+    "invalid_font_family": "字型名稱無效：{value}",
     "invalid_font_size": "字級必須介於 {min}~{max}，目前為：{value}",
-    "invalid_line_spacing": "行距必須介於 {min}~{max}，目前為：{value}",    "unknown_fields": "已忽略無法辨識的欄位：{fields}",
+    "invalid_line_spacing": "行距必須介於 {min}~{max}，目前為：{value}",
+    "invalid_paragraph_spacing": "段間距必須介於 {min}~{max} 像素，目前為：{value}",
+    "unknown_fields": "已忽略無法辨識的欄位：{fields}",
     "empty_name": "主題名稱不能是空的。",
     "reserved_name": "「{name}」是內建主題的名稱，請換一個名稱。",
     "name_exists": "已存在同名主題「{name}」。",

@@ -116,7 +116,7 @@ def build_palette(theme):
     return palette
 
 
-def build_style_sheet(theme, font_size=12, line_spacing=1.5, extra_rules=""):
+def build_style_sheet(theme, font_size=12, extra_rules=""):
     """按 ``theme`` 生成完整样式表。
 
     ``theme`` 需要含 ``background`` / ``foreground`` / ``accent`` /
@@ -125,11 +125,16 @@ def build_style_sheet(theme, font_size=12, line_spacing=1.5, extra_rules=""):
     ``tooltip`` / ``sidebar`` / ``reader``）缺了也没关系——这里会先跑一遍
     :func:`enm.managers.theme.derive_missing`，所以传 5 色旧主题进来同样能用。
 
-    ``font_size`` / ``line_spacing`` 作用于阅读区（``QTextEdit``）。
+    ``font_size`` 作用于阅读区（``QTextEdit``）。
     ``extra_rules`` 追加在最前面，给「一小块容器也要整块上色」的预览区用。
 
-    注意：标题栏**不在这里**。原生标题栏由 :mod:`enm.ui.titlebar` 走 DWM
-    上色，Qt 样式表管不到系统画的标题栏。
+    注意两件事：
+
+    * 标题栏**不在这里**。原生标题栏由 :mod:`enm.ui.titlebar` 走 DWM 上色，
+      Qt 样式表管不到系统画的标题栏。
+    * **行距 / 段间距也不在这里**。Qt 样式表不支持 ``line-height``（写过也
+      不生效，实测与不写完全同高），行距只能走块格式，见
+      :func:`enm.ui.reader_typography.apply_reader_typography`。
     """
     theme = derive_missing(theme)
     background = theme["background"]
@@ -176,13 +181,14 @@ def build_style_sheet(theme, font_size=12, line_spacing=1.5, extra_rules=""):
         color: {foreground};
     }}
 
-    /* 阅读区：底色走 reader，想要米黄 / 护眼绿就改它 */
+    /* 阅读区：底色走 reader，想要米黄 / 护眼绿就改它。
+       行距 / 段间距不在这里——Qt 样式表的 line-height 无效，
+       文本间距一律由 enm.ui.reader_typography 的块格式负责。 */
     QTextEdit, QPlainTextEdit {{
         background-color: {reader};
         color: {foreground};
         border: 1px solid {border};
         font-size: {font_size}px;
-        line-height: {line_spacing};
     }}
 
     /* 左侧章节列表：单独一块底色，与阅读区区分开 */

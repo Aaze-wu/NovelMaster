@@ -10,7 +10,7 @@
 * 「以其它主题为起点」：把任意已有主题当作起点铺进来。**仅是一次性起点**：
   主题文件里不会保存什么继承关系，保存时展开成完整字段，文件自包含
 * 「一键派生」：只给一个主色，自动算出整套配色（深浅方向由主色明暗决定）
-* 排版（字体 / 字号 / 行距）可以跟着主题一起存，也能随时关掉
+* 排版（字体 / 字号 / 行距 / 段间距）可以跟着主题一起存，也能随时关掉
 * 预览区是真的控件（假标题栏 / 阅读区 / 按钮 / 输入框 / 进度条 / 列表 /
   下拉框），和主窗口用同一份样式表，所见即所得
 """
@@ -26,14 +26,17 @@ from PyQt5.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDialog,
                              QWidget)
 
 from .. import i18n
-from ..managers.theme import (COLOR_FIELDS, DEFAULT_THEME, FIELD_GROUPS,
-                              FONT_SIZE_RANGE, LINE_SPACING_RANGE,
-                              NAME_FIELD, OPTIONAL_COLOR_FIELDS,
+from ..managers.theme import (COLOR_FIELDS, DEFAULT_PARAGRAPH_SPACING,
+                              DEFAULT_THEME, FIELD_GROUPS, FONT_SIZE_RANGE,
+                              LINE_SPACING_RANGE, NAME_FIELD,
+                              OPTIONAL_COLOR_FIELDS, PARAGRAPH_SPACING_RANGE,
                               REQUIRED_COLOR_FIELDS, THEME_PRESETS, TYPO_FIELDS,
                               derive_missing, derive_palette,
                               normalise_color, normalise_font_family,
                               normalise_font_size, normalise_line_spacing,
-                              preset_colors, sanitize_theme_name)
+                              normalise_paragraph_spacing, preset_colors,
+                              sanitize_theme_name)
+from .reader_typography import apply_reader_typography
 from .theme_qss import build_style_sheet
 from .titlebar import apply_to_widget
 
@@ -181,8 +184,13 @@ class ThemePreviewWidget(QWidget):
 
         self.retranslate()
 
-    def set_theme(self, theme, font_size=None, line_spacing=None):
-        """按主题刷新自身样式（和主窗口用同一份样式表）"""
+    def set_theme(self, theme, font_size=None, line_spacing=None,
+                  paragraph_spacing=None):
+        """按主题刷新自身样式（和主窗口用同一份样式表）
+
+        行距 / 段间距不可能是样式表管得了的（Qt 不支持 ``line-height``），
+        所以样式表设完后还得给预览文档套一遍块格式。
+        """
         theme = derive_missing(theme)
         # 容器自己的底色、假标题栏都要单独写规则：
         # QMainWindow / QDialog 的规则管不到它们，真标题栏则归 titlebar.py 管。
@@ -196,8 +204,8 @@ class ThemePreviewWidget(QWidget):
             f" background: transparent; }}"
         )
         self.setStyleSheet(build_style_sheet(theme, font_size=font_size or 12,
-                                             line_spacing=line_spacing or 1.5,
                                              extra_rules=extra))
+        apply_reader_typography(self.reader, line_spacing, paragraph_spacing)
 
     def retranslate(self):
         """刷新预览里的示例文案"""
@@ -224,8 +232,9 @@ class ThemeEditorDialog(QDialog):
     * ``ui_theme`` = 对话框外壳自己用哪套配色，一般是当前正在用的主题
     * ``titlebar_theme`` = 给对话框自己的 Windows 原生标题栏上色用的主题；
       为空就不上色（对应「标题栏跟随主题」开关关闭）
-    * ``font_family`` / ``font_size`` / ``line_spacing`` = 主题还没带排版信息时
-      编辑器里显示什么默认值（一般传当前阅读设置），省得用户从零填
+    * ``font_family`` / ``font_size`` / ``line_spacing`` / ``paragraph_spacing``
+      = 主题还没带排版信息时编辑器里显示什么默认值（一般传当前阅读设置），
+      省得用户从零填
 
     主题里带没带排版信息，直接决定「排版」那一组的勾选状态：带了就勾上并
     回填，没带就默认不勾——不勾 = 保存时**不写**排版字段，阅读区继续用
@@ -234,7 +243,7 @@ class ThemeEditorDialog(QDialog):
 
     def __init__(self, manager, theme=None, name="", parent=None, ui_theme=None,
                  titlebar_theme=None, font_family=None, font_size=None,
-                 line_spacing=None):
+                 line_spacing=None, paragraph_spacing=None):
         super().__init__(parent)
         self.manager = manager
         self._original_key = name if theme is not None else None
@@ -245,10 +254,13 @@ class ThemeEditorDialog(QDialog):
         source = derive_missing(theme or manager.get_theme(DEFAULT_THEME))
         self.colors = {field: source[field] for field in COLOR_FIELDS}
         self._source_typography = {field: source.get(field) for field in TYPO_FIELDS}
+        paragraph = normalise_paragraph_spacing(paragraph_spacing)
         self._fallback_typography = {
             "font_family": normalise_font_family(font_family),
             "font_size": normalise_font_size(font_size) or 16,
             "line_spacing": normalise_line_spacing(line_spacing) or 1.8,
+            "paragraph_spacing": (DEFAULT_PARAGRAPH_SPACING
+                                  if paragraph is None else paragraph),
         }
         self._default_name = name or manager.next_available_name(
             i18n.t("theme_editor.name_default"))
@@ -427,6 +439,10 @@ class ThemeEditorDialog(QDialog):
         self.line_spacing_spin.setRange(*LINE_SPACING_RANGE)
         self.line_spacing_spin.setSingleStep(0.1)
         self.line_spacing_spin.setDecimals(2)
+        self.paragraph_spacing_spin = QSpinBox()
+        self.paragraph_spacing_spin.setRange(*PARAGRAPH_SPACING_RANGE)
+        self.paragraph_spacing_spin.setSingleStep(2)
+        self.paragraph_spacing_spin.setSuffix(" px")
 
         family = (self._source_typography.get("font_family")
                   or self._fallback_typography["font_family"])
@@ -437,8 +453,15 @@ class ThemeEditorDialog(QDialog):
         self.line_spacing_spin.setValue(
             self._source_typography.get("line_spacing")
             or self._fallback_typography["line_spacing"])
+        # 段间距合法值含 0，所以不能用 ``or`` 接兑底值
+        paragraph = normalise_paragraph_spacing(
+            self._source_typography.get("paragraph_spacing"))
+        self.paragraph_spacing_spin.setValue(
+            self._fallback_typography["paragraph_spacing"]
+            if paragraph is None else paragraph)
         self.typography_check.setChecked(
-            any(self._source_typography.get(field) for field in TYPO_FIELDS))
+            any(self._source_typography.get(field) is not None
+                for field in TYPO_FIELDS))
 
         hint = QLabel(i18n.t("theme_editor.typography_hint"))
         hint.setWordWrap(True)
@@ -451,20 +474,23 @@ class ThemeEditorDialog(QDialog):
         form.addRow(i18n.t("theme_editor.font_size_label"), self.font_size_spin)
         form.addRow(i18n.t("theme_editor.line_spacing_label"),
                     self.line_spacing_spin)
+        form.addRow(i18n.t("theme_editor.paragraph_spacing_label"),
+                    self.paragraph_spacing_spin)
         form.addRow(hint)
 
         self.typography_check.stateChanged.connect(self._sync_typography_state)
         self.font_size_spin.valueChanged.connect(self.refresh_preview)
         self.line_spacing_spin.valueChanged.connect(self.refresh_preview)
+        self.paragraph_spacing_spin.valueChanged.connect(self.refresh_preview)
         self.font_combo.currentFontChanged.connect(self.refresh_preview)
         self._sync_typography_state()
         return group
 
     def _sync_typography_state(self, *_args):
-        """勾选框决定三个排版输入能不能用"""
+        """勾选框决定四个排版输入能不能用"""
         enabled = self.typography_check.isChecked()
         for widget in (self.font_combo, self.font_size_spin,
-                       self.line_spacing_spin):
+                       self.line_spacing_spin, self.paragraph_spacing_spin):
             widget.setEnabled(enabled)
         self.refresh_preview()
 
@@ -521,8 +547,11 @@ class ThemeEditorDialog(QDialog):
                 self.font_size_spin.setValue(int(theme["font_size"]))
             if theme.get("line_spacing"):
                 self.line_spacing_spin.setValue(float(theme["line_spacing"]))
+            paragraph = normalise_paragraph_spacing(theme.get("paragraph_spacing"))
+            if paragraph is not None:
+                self.paragraph_spacing_spin.setValue(paragraph)
             self.typography_check.setChecked(
-                any(theme.get(field) for field in TYPO_FIELDS))
+                any(theme.get(field) is not None for field in TYPO_FIELDS))
 
         self._loading = False
         self._sync_typography_state()
@@ -612,12 +641,13 @@ class ThemeEditorDialog(QDialog):
 
     def refresh_preview(self):
         """预览区跟着颜色走（排版也一起，看得到实际效果）"""
+        typography = self.typography_check.isChecked()
         self.preview.set_theme(
             self.current_colors(),
-            font_size=(self.font_size_spin.value()
-                       if self.typography_check.isChecked() else None),
-            line_spacing=(self.line_spacing_spin.value()
-                          if self.typography_check.isChecked() else None))
+            font_size=(self.font_size_spin.value() if typography else None),
+            line_spacing=(self.line_spacing_spin.value() if typography else None),
+            paragraph_spacing=(self.paragraph_spacing_spin.value()
+                               if typography else None))
 
     # ------------------------------------------------------------------ 结果
 
@@ -661,6 +691,7 @@ class ThemeEditorDialog(QDialog):
                 theme["font_family"] = family
             theme["font_size"] = int(self.font_size_spin.value())
             theme["line_spacing"] = round(float(self.line_spacing_spin.value()), 2)
+            theme["paragraph_spacing"] = int(self.paragraph_spacing_spin.value())
 
         theme[NAME_FIELD] = self.name_edit.text().strip()
         return theme, []
