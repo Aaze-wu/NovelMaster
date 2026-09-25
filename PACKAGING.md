@@ -175,6 +175,7 @@ dist/
 - **PyQt5 / PyQtWebEngine**: GUI框架
 - **PyQt5.QtTextToSpeech**: 朗读（TTS）功能，调用系统自带语音引擎（Windows 为 SAPI5），
   无需额外第三方包；同时必须带上 Qt 的 `texttospeech` 插件（见下）
+- **pywin32**（可选）: 朗读的**增强**依赖，装了才会启用 `sapi-com` 后端（见下）
 - **ebooklib**: EPUB文件处理
 - **lxml**: XML/HTML解析
 - **chardet**: 编码检测
@@ -217,6 +218,39 @@ dist/NovelMaster.dist/PyQt5/Qt5/plugins/texttospeech/qtexttospeech_sapi.dll
 ```
 
 （单文件模式会在解包目录里出现同样三个文件。）
+
+### 可选增强：`sapi-com` 后端（pywin32 + OneCore 语音）
+
+v1.3.7 起，朗读还能走 `sapi-com` 后端：用 `win32com.client` 驱动 `SAPI.SpVoice`，
+好处是能看到系统 **OneCore 语音库**
+（`HKLM\SOFTWARE\Microsoft\Speech_OneCore\Voices\Tokens`）里的额外音色——
+本机中文因此从 1 个（Huihui）变成 3 个（Huihui / Kangkang / Yaoyao）。
+这部分**可选：打包环境里没装 `pywin32`，冻结版就自动回落 `QTextToSpeech`，不报错。**
+
+想做带增强的发布版，就在打包用的解释器里装上：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install "pywin32>=306"
+```
+
+随后**无需改动打包脚本**：`enm/managers/tts.py` 里对 `win32com.client` 的导入写在
+函数内部、又是真导入（不是字符串拼出来的），Nuitka 顺着导入链就会收进去。
+万一冻结版里没收到（表现为“朗读语音”菜单里只有经典库音色），
+可以手动补上这三个模块：
+
+```text
+--include-module=win32com.client
+--include-module=win32com.client.dynamic
+--include-module=pythoncom
+```
+
+> 注意 `win32com` 与 `pywin32` 的 DLL（`pywintypes3X.dll` / `pythoncom3X.dll`）
+> 都在 site-packages 根目录与 `win32/`、`win32com/`、`pythonwin/` 下，
+> Nuitka 会一并收集。验证方法：跑发布版，看“朗读” → “朗读语音”里有没有
+> Kangkang / Yaoyao 这类 OneCore 音色。
+>
+> 另外，程序**判断** `sapi-com` 能不能用时只用 `find_spec` + 读注册表（约 1 ms），
+> 不会在启动路径上加载 `win32com`（那要 ~100 ms），所以带着 `pywin32` 启动并不变慢。
 
 ### 排除的模块
 
@@ -289,6 +323,17 @@ pip install -i https://mirrors.aliyun.com/pypi/simple/ --upgrade nuitka
 - 拿开发环境对比一下：`python -c "from PyQt5.QtTextToSpeech import QTextToSpeech; print(QTextToSpeech.availableEngines())"`
   应该输出 `['sapi']`；打包版输出为空就是插件没进去。
 
+### 6. 打包后音色比开发环境少（没有 Kangkang / Yaoyao）
+
+说明冻结版在跑 `QTextToSpeech` 那条回落路线，也就是 `sapi-com` 后端没起来。
+两种原因：
+
+- **打包环境里没装 `pywin32`**：加上再重打包（见上文“可选增强：`sapi-com` 后端”）；
+- **装了但 Nuitka 没收到**：按那里的说明补 `--include-module` 参数。
+
+这两种情况都只是“音色少一些”，不影响朗读本身；开发环境下
+`python -c "from enm.managers.tts import available_engines; print(available_engines())"`
+应该把 `sapi-com` 排在第一个。
 ## 🔄 更新打包
 
 ### 代码更新后

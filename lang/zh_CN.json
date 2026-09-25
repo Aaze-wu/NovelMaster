@@ -49,6 +49,13 @@
     "tts_prev_sentence": "上一句",
     "tts_next_sentence": "下一句",
     "tts_voice": "朗读语音",
+    "tts_range": "朗读范围",
+    "tts_range_chapter": "整章朗读",
+    "tts_range_cursor": "从光标处开始",
+    "tts_range_selection": "只读选中内容",
+    "tts_range_chapters": "指定起止章节…",
+    "copy": "复制",
+    "select_all": "全选",
     "tts_auto_next": "读完自动读下一章",
     "tts_highlight": "朗读时高亮当前句",
     "settings": "设置",
@@ -142,10 +149,38 @@
       "very_fast": "很快"
     },
     "voice": {
-      "none": "（没有可用语音）"
+      "none": "（没有可用语音）",
+      "male": "男声",
+      "female": "女声"
+    },
+    "volume": {
+      "label": "音量"
     },
     "auto_next_chapter": "自动读下一章",
     "highlight": "跟随高亮",
+    "collapse": "收起朗读条",
+    "expand": "展开朗读条",
+    "timer": {
+      "label": "定时",
+      "none": "不定时",
+      "custom": "自定义…",
+      "minutes": "{minutes} 分钟",
+      "chapter": "读完本章停",
+      "remaining": "剩余 {time}",
+      "custom_title": "自定义定时",
+      "custom_prompt": "朗读多少分钟后自动停止？"
+    },
+    "range": {
+      "dialog_title": "指定起止章节",
+      "hint": "从起始章一直读到结束章末尾，中间每章整章读完。范围只生效一次，读完就自动回到「整章朗读」。",
+      "from_label": "起始章节:",
+      "to_label": "结束章节:",
+      "unnamed": "第 {index} 章",
+      "start": "开始朗读",
+      "no_selection": "请先在正文里选中要朗读的文字。",
+      "cursor_empty": "光标后面没有可朗读的文字。",
+      "empty": "这段范围里没有可朗读的文字。"
+    },
     "state": {
       "playing": "朗读中",
       "paused": "已暂停",
@@ -254,6 +289,22 @@
       "tts_rate_down": {
         "label": "朗读语速减慢",
         "hint": "语速往下调一档（很快 → 很慢）"
+      },
+      "tts_range_chapter": {
+        "label": "整章朗读",
+        "hint": "从本章开头重读整章（默认未绑定）"
+      },
+      "tts_range_cursor": {
+        "label": "从光标处开始朗读",
+        "hint": "从光标所在句子开始，读到本章末尾停下（默认未绑定）"
+      },
+      "tts_range_selection": {
+        "label": "只读选中内容",
+        "hint": "只朗读正文里选中的那一段（默认未绑定）"
+      },
+      "tts_range_chapters": {
+        "label": "指定起止章节",
+        "hint": "弹窗选两章，从起始章连读到结束章末尾（默认未绑定）"
       },
       "view_toggle_sidebar": {
         "label": "显示/隐藏章节列表",

@@ -39,3 +39,11 @@ pypdf>=6.0.0
 #
 #     如确需安装（请自行评估许可影响）：
 #     pip install mobi
+#
+# pywin32>=306
+#     朗读功能的增强依赖。装上后朗读会走 sapi-com 后端（直接用 SAPI.SpVoice
+#     驱动语音），能多枚举出系统 OneCore 语音库里的音色，例如中文的
+#     Kangkang（男声）与 Yaoyao（女声）。未安装时自动回落到
+#     PyQt5.QtTextToSpeech，朗读功能一样齐全，只是可选音色少一些。
+#     官方发行版已随包附带，源码运行想体验更多音色时再装：
+#     pip install pywin32

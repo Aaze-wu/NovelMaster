@@ -359,6 +359,45 @@ def build_style_sheet(theme, font_size=12, extra_rules=""):
         selection-color: {on_accent};
     }}
 
+    /* 滑块（朗读条的音量）。跟 QSpinBox 同理：样式表一条规则都不写时，
+       Windows 原生样式会画出带渐变的浅色槽，深色主题下就是一道亮条纹，
+       所以槽 / 已划过部分 / 未划过部分 / 滑块四段都得显式上色。
+
+       ``handle`` 的圆角取宽度的一半就成了圆点（纯 QSS 画不了真正的圆），
+       ``margin`` 取负值让滑块上下各探出槽一点，看起来才像能拖的东西。
+       禁用态统一压成 disabled 色，跟别处一致。 */
+    QSlider::groove:horizontal {{
+        background-color: {border};
+        height: 4px;
+        border-radius: 2px;
+    }}
+    QSlider::sub-page:horizontal {{
+        background-color: {accent};
+        height: 4px;
+        border-radius: 2px;
+    }}
+    QSlider::add-page:horizontal {{
+        background-color: {border};
+        height: 4px;
+        border-radius: 2px;
+    }}
+    QSlider::handle:horizontal {{
+        background-color: {accent};
+        border: none;
+        width: 10px;
+        margin: -4px 0;
+        border-radius: 5px;
+    }}
+    QSlider::handle:horizontal:hover {{
+        background-color: {highlight};
+    }}
+    QSlider::groove:horizontal:disabled,
+    QSlider::sub-page:horizontal:disabled,
+    QSlider::add-page:horizontal:disabled,
+    QSlider::handle:horizontal:disabled {{
+        background-color: {disabled};
+    }}
+
     /* 数字输入框（字号 / 行距）。QSpinBox 与 QDoubleSpinBox 的基类是
        QAbstractSpinBox，跟 QLineEdit 没有继承关系，上面那条规则管不到它们；
        而样式表**一条规则都没碰**某个控件时，Windows 原生样式会拿自己的主题

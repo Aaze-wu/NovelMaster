@@ -49,6 +49,7 @@ class ConfigManager:
             # * tts_highlight —— 高亮正在朗读的那一句
             # * tts_auto_scroll —— 跟着高亮自动滚动（关掉只高亮不滚屏）
             # * tts_split_max_chars —— 单句最长字数，超长句子会在标点处再切一刀
+            # * tts_bar_collapsed —— 朗读条收起（只留状态文字那一行）
             "tts_rate": 0.0,
             "tts_volume": 1.0,
             "tts_voice_name": "",
@@ -56,6 +57,7 @@ class ConfigManager:
             "tts_highlight": True,
             "tts_auto_scroll": True,
             "tts_split_max_chars": 120,
+            "tts_bar_collapsed": False,
             "shortcuts": {}
         }
         self.config = self.load_config()

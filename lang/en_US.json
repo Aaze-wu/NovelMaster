@@ -49,6 +49,13 @@
     "tts_prev_sentence": "Previous Sentence",
     "tts_next_sentence": "Next Sentence",
     "tts_voice": "Reading Voice",
+    "tts_range": "Reading Range",
+    "tts_range_chapter": "Whole Chapter",
+    "tts_range_cursor": "From the Cursor",
+    "tts_range_selection": "Selected Text Only",
+    "tts_range_chapters": "Chapter Range…",
+    "copy": "Copy",
+    "select_all": "Select All",
     "tts_auto_next": "Continue to the Next Chapter",
     "tts_highlight": "Highlight the Current Sentence",
     "settings": "Settings",
@@ -142,10 +149,38 @@
       "very_fast": "Fastest"
     },
     "voice": {
-      "none": "(no voice available)"
+      "none": "(no voice available)",
+      "male": "male",
+      "female": "female"
+    },
+    "volume": {
+      "label": "Volume"
     },
     "auto_next_chapter": "Next chapter",
     "highlight": "Follow highlight",
+    "collapse": "Collapse the bar",
+    "expand": "Expand the bar",
+    "timer": {
+      "label": "Timer",
+      "none": "Off",
+      "custom": "Custom…",
+      "minutes": "{minutes} min",
+      "chapter": "Stop at chapter end",
+      "remaining": "left {time}",
+      "custom_title": "Custom timer",
+      "custom_prompt": "Stop reading after how many minutes?"
+    },
+    "range": {
+      "dialog_title": "Chapter Range",
+      "hint": "Reads from the first chapter through the end of the last one, finishing every chapter in between. The range applies once: it goes back to the whole chapter when it is done.",
+      "from_label": "From chapter:",
+      "to_label": "To chapter:",
+      "unnamed": "Chapter {index}",
+      "start": "Start Reading",
+      "no_selection": "Select some text in the reading area first.",
+      "cursor_empty": "There is nothing left to read after the cursor.",
+      "empty": "This range has nothing to read."
+    },
     "state": {
       "playing": "Speaking",
       "paused": "Paused",
@@ -254,6 +289,22 @@
       "tts_rate_down": {
         "label": "Speak Slower",
         "hint": "Step the speaking rate down (fastest to slowest)"
+      },
+      "tts_range_chapter": {
+        "label": "Read the Whole Chapter",
+        "hint": "Reread the whole chapter from its start (unbound by default)"
+      },
+      "tts_range_cursor": {
+        "label": "Read From the Cursor",
+        "hint": "Start at the sentence under the cursor and stop at the chapter end (unbound by default)"
+      },
+      "tts_range_selection": {
+        "label": "Read Selected Text Only",
+        "hint": "Read only the selected passage (unbound by default)"
+      },
+      "tts_range_chapters": {
+        "label": "Read a Chapter Range",
+        "hint": "Pick two chapters and read from the first through the end of the second (unbound by default)"
       },
       "view_toggle_sidebar": {
         "label": "Show/Hide Chapter List",

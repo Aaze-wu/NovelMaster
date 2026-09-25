@@ -85,6 +85,17 @@ ACTION_DEFS = (
                 READER, "语速往上调一档（很慢 → 很快）"),
     ShortcutDef("tts.rate_down", "朗读语速减慢", GROUP_AUDIO, "Ctrl+Shift+Down",
                 READER, "语速往下调一档（很快 → 很慢）"),
+    # 朗读范围（v1.3.7）：同样只注册在阅读区，顺带出现在阅读区右键菜单里。
+    # 默认不绑键 —— 它们更像「命令」而不是日常按键，想用的人自己去快捷键
+    # 设置里绑一个就行（比如给「从光标处开始」绑 Ctrl+R）。
+    ShortcutDef("tts.range_chapter", "整章朗读", GROUP_AUDIO, "", READER,
+                "从本章开头重读整章（默认未绑定）"),
+    ShortcutDef("tts.range_cursor", "从光标处开始朗读", GROUP_AUDIO, "",
+                READER, "从光标所在句子开始，读到本章末尾停下（默认未绑定）"),
+    ShortcutDef("tts.range_selection", "只读选中内容", GROUP_AUDIO, "",
+                READER, "只朗读正文里选中的那一段（默认未绑定）"),
+    ShortcutDef("tts.range_chapters", "指定起止章节", GROUP_AUDIO, "",
+                READER, "弹窗选两章，从起始章连读到结束章末尾（默认未绑定）"),
 
     # ---- 界面控制 ----
     ShortcutDef("view.toggle_sidebar", "显示/隐藏章节列表", GROUP_VIEW,
