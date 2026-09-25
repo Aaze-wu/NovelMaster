@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from ..logger import logger
+from ..managers.book_identity import is_generic_title, strip_extension
 from .base import BaseReader, ReaderError
 from .factory import SUPPORTED_EXTENSIONS, create_reader
 
@@ -69,8 +70,10 @@ class FolderReader(BaseReader):
     def retranslate_titles(self):
         """让已缓存的子阅读器重新生成自动编号的章节标题"""
         changed = False
-        for reader in self._reader_cache.values():
+        for index, reader in self._reader_cache.items():
             if reader is not None and reader.retranslate_titles():
+                changed = True
+            if self._use_file_name_as_title(reader, index):
                 changed = True
         return changed
 
@@ -85,6 +88,39 @@ class FolderReader(BaseReader):
             return None
         return self.files[self.current_file_index]
     
+    def display_name(self, index=None):
+        """某个文件的展示名（文件名去掉扩展名）；``index`` 省略时用当前文件"""
+        if not self.files:
+            return self.folder_path.name
+        if index is None:
+            index = self.current_file_index
+        if not 0 <= index < len(self.files):
+            return self.folder_path.name
+        name = self.files[index]['name']
+        return strip_extension(name) or name
+
+    def _use_file_name_as_title(self, reader, index=None):
+        """整篇只有一章且标题是占位词时，改用文件名当章节名。
+
+        文件夹模式下这一层的「章节」本来就是一个文件，而 TXT（没有章节标记）、
+        DOCX、HTML、MOBI、UMD 这类整篇一章的格式，标题只能是程序生成的占位词
+        （``全文`` / ``正文`` / ``Full Text``……），在列表里既没有区分度、看着
+        又像坏掉的标题。真书自带的章节名不受影响：能给出章节名的文件都不止一章，
+        所以这里只在只有一章时才动手。返回是否改动了标题。
+        """
+        if reader is None or len(reader.chapters) != 1:
+            return False
+
+        chapter = reader.chapters[0]
+        title = str(chapter.get('title') or '')
+        if title.strip() and not is_generic_title(title):
+            return False
+
+        chapter['title'] = self.display_name(index)
+        # 占位标题已经换掉了，别让切换语言时再按 title_spec 生成回去
+        chapter.pop('title_spec', None)
+        return True
+
     def get_current_reader(self):
         """获取当前文件的阅读器（带缓存，保证章节位置不会因为重复解析而丢失）"""
         if not self.files:
@@ -103,6 +139,7 @@ class FolderReader(BaseReader):
             logger.log(f"打开 {current_file['name']} 失败: {e}", "ERROR")
         
         self._reader_cache[self.current_file_index] = reader
+        self._use_file_name_as_title(reader, self.current_file_index)
         return reader
     
     def close(self):
