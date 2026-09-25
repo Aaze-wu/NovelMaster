@@ -319,7 +319,7 @@ v1.3.9 起，设置里多了一项**「媒体键控制朗读」**（默认关）
 上显示**书名 + 当前章节**。它靠 **pywinrt 投影**实现，是一组包，全装齐：
 
 ```powershell
-.\\.venv\\Scripts\\python.exe -m pip install winrt-runtime ^
+.\.venv\Scripts\python.exe -m pip install winrt-runtime ^
     winrt-Windows.Foundation winrt-Windows.Foundation.Collections ^
     winrt-Windows.Media winrt-Windows.Media.Core ^
     winrt-Windows.Media.Control winrt-Windows.Media.Playback ^
@@ -346,23 +346,22 @@ v1.3.9 起，设置里多了一项**「媒体键控制朗读」**（默认关）
 > 右键 →「打开音量合成器」）里会多出一条 NovelMaster 的条目，这是**预期现象**，
 > 它不发声、也不占用声卡通道；关闭程序会一并退出。
 >
-> **媒体浮层上的应用名靠安装程序写在快捷方式上。** Windows 是把「AUMID → 应用名」
-> 记在**带 `AppUserModelID` 属性的开始菜单快捷方式**里的。实测只调
+> **媒体浮层上的应用名由开始菜单快捷方式决定。** Windows 把「AUMID → 应用名」
+> 记在**带 `AppUserModelID` 属性的开始菜单快捷方式**里。实测只调
 > `SetCurrentProcessExplicitAppUserModelID`、或者只往注册表
 > `HKCU\Software\Classes\AppUserModelId\<AUMID>` 写 `DisplayName`，shell 的
-> `AppsFolder` 都**查不到**这个 ID，浮层标题照旧写「未知应用」；写进快捷方式后
-> 立刻能查到。所以 `NovelMaster-Release.iss` 的 `[Icons]` 带
-> `AppUserModelID: "Aaze_wu.NovelMaster.MediaKeys"`（必须与 `enm/managers/media_keys.py`
-> 里的 `APP_USER_MODEL_ID` 一致），重装/覆盖安装即生效。程序本身另外会往
+> `AppsFolder` 都**查不到**这个 ID，浮层标题照旧写「未知应用」。程序本身会往
 > `HKCU\Software\Classes\AppUserModelId\<AUMID>` 幂等写 `DisplayName`（跟随界面
 > 语言，取 `app.name`）与 `IconUri`（`icon/icon.ico`），那份只影响提示类界面，
 > 不需要管理员权限，写失败也不影响按键。
+>
+> `APP_USER_MODEL_ID` 定义在 `enm/managers/media_keys.py`，凡是要创建快捷方式的场合
+> 都得带上同一个 ID（否则浮层标题会退化成「未知应用」）。
 
-验证：**用安装包装一次**（覆盖安装即可，安装程序会重建带 AUMID 的开始菜单快捷方式）
-→ 设置里打开「媒体键控制朗读」→ 打开一本书并开始朗读，
-按键盘媒体键应能控制朗读，任务栏媒体浮层应显示书名与章节，
-**左上角的应用名应是 NovelMaster（不是「未知应用」）**。
-注意：直接跑 `dist` 里的绿色版没有快捷方式，浮层仍会显示「未知应用」。
+验证：设置里打开「媒体键控制朗读」→ 打开一本书并开始朗读：按键盘媒体键应能控制朗读，
+任务栏媒体浮层应显示书名与章节。若是从带 `AppUserModelID` 的开始菜单快捷方式启动，
+左上角的应用名会显示 NovelMaster；直接跑 `dist` 里的绿色版没有快捷方式，
+浮层仍会显示「未知应用」，媒体键本身照常可用。
 
 ### 排除的模块
 
