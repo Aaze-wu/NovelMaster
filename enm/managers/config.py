@@ -75,7 +75,12 @@ class ConfigManager:
             "tray_close_to_tray": False,
             "tray_notice_shown": False,
             "media_keys_enabled": False,
-            "shortcuts": {}
+            # 快捷键（见 enm.shortcuts）：
+            # * shortcuts —— 键盘绑定（只存与默认值不同的项）
+            # * shortcuts_mouse —— 鼠标键绑定（鼠标侧键 / 中键），与键盘各存一套，
+            #   互不影响：同一个动作可以同时有键盘键和鼠标键
+            "shortcuts": {},
+            "shortcuts_mouse": {}
         }
         self.config = self.load_config()
     

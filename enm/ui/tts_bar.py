@@ -474,7 +474,9 @@ class TtsBar(QWidget):
         return {
             "tts.play_pause": self.play_btn,
             "tts.stop": self.stop_btn,
-            "tts.previous_sentence": self.previous_btn,
+            # 注意这里要用动作 id（tts.prev_sentence），不是按钮文案的键
+            # （tts.previous_sentence），写错了提示里会直接显示动作 id
+            "tts.prev_sentence": self.previous_btn,
             "tts.next_sentence": self.next_btn,
         }
 
