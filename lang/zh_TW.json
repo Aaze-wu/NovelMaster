@@ -77,6 +77,10 @@
     "typography_follow": "排版跟隨主題",
     "share_progress": "同名書籍共用閱讀進度",
     "shortcut_settings": "快捷鍵設定",
+    "tray_icon": "顯示系統匣圖示",
+    "tray_close_hide": "關閉視窗時隱藏到系統匣",
+    "media_keys": "媒體鍵控制朗讀",
+    "media_keys_unavailable": "需要 winrt 元件（可選相依套件，見 README），本機沒有安裝",
     "language": "語言",
     "help": "說明",
     "about": "關於"
@@ -95,6 +99,15 @@
     "toggle_show": "顯示",
     "toggle_hide": "隱藏",
     "progress": "閱讀進度: {percent}%"
+  },
+  "tray": {
+    "toggle_show": "顯示主視窗",
+    "toggle_hide": "隱藏主視窗",
+    "tooltip": "{app} · {state}",
+    "quit": "結束程式",
+    "unavailable": "系統匣無法使用，開不了系統匣圖示（遠端桌面等環境有時會這樣）。",
+    "notice_title": "NovelMaster 還在背景執行",
+    "notice_body": "視窗已收進系統匣，朗讀不受影響。連按兩下系統匣圖示可以重新開啟；要完全結束，請在圖示上按右鍵選「結束程式」。"
   },
   "dialog": {
     "open_file": "開啟檔案",
@@ -126,7 +139,9 @@
     "no_displayable_content": "檔案中沒有可顯示的內容。",
     "no_displayable_content_folder": "無法讀取該檔案或檔案中沒有可顯示的內容。",
     "tts_unavailable": "這台電腦上沒有可用的語音引擎，朗讀功能無法使用。",
-    "tts_empty": "這一章沒有可朗讀的文字（可能只有圖片）。"
+    "tts_empty": "這一章沒有可朗讀的文字（可能只有圖片）。",
+    "media_keys_missing": "本機沒安裝 winrt 元件（可選相依套件），全域媒體鍵無法使用。",
+    "media_keys_failed": "全域媒體鍵啟動失敗：{error}"
   },
   "typography": {
     "hint": "行距與段間距作用在閱讀區正文上。段間距是相鄰兩段之間的空白（像素），Qt 自帶約 24，所以填 24 就是原來的樣子。",

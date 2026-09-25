@@ -26,6 +26,9 @@ from ..managers.book_identity import (FINGERPRINT_SAMPLE, build_identity,
                                       chapter_index_in,
                                       normalise_chapter_title)
 from ..managers import tts_models
+from ..managers.media_keys import (MediaKeysController, media_keys_available,
+                                   media_keys_importable,
+                                   media_keys_unavailable_reason)
 from ..managers.tts import (DEFAULT_MAX_CHARS, EDGE_ENGINE, NEURAL_ENGINE,
                             SpeechQueue, available_engines, create_backend,
                             pick_voice, sentences_for_blocks, voice_label)
@@ -49,6 +52,7 @@ from .theme_qss import (SPLITTER_HANDLE_WIDTH, build_palette,
                         build_style_sheet)
 from .titlebar import (apply_dark_mode, apply_titlebar_theme, available,
                        reset_titlebar_theme)
+from .tray import TrayIcon
 from .tts_bar import (RATE_PRESETS, TIMER_CHAPTER, TIMER_DEFAULT_MINUTES,
                       TIMER_MAX_MINUTES, TIMER_MIN_MINUTES, TIMER_OFF, TtsBar,
                       nearest_rate, quantize_volume)
@@ -74,6 +78,10 @@ SIDEBAR_WIDTH_SAVE_DELAY = 400
 
 # 「同一个文件不再询问是否共用进度」最多记这么多条（只当备忘，不参与逻辑）
 MAX_SHARE_IGNORED = 100
+
+# 全局媒体键的会话在自己的线程里建，起来要一会儿；
+# 隔这么久回头看一眼有没有报错（毫秒）
+MEDIA_KEYS_CHECK_MS = 1500
 
 
 def clamp_sidebar_width(value):
@@ -216,6 +224,14 @@ class NovelMaster(QMainWindow):
         # 字符偏移那种（cursor / span）只在当时那一章里有效，用户手动翻章
         # 就对不上了，所以记下 anchor，对不上就作废。
         self._speech_range = None
+
+        # 系统托盘与全局媒体键（v1.3.9）：都是懒创建，没开功能就不干活
+        self._tray_icon = None
+        #: 这个进程是不是从托盘菜单「退出程序」退的（真退，不藏）
+        self._quitting_from_tray = False
+        self._media_keys = None
+        #: 媒体键启动失败只弹一次，免得每次翻章都弹
+        self._media_keys_error_reported = False
         
         # 设置窗口图标
         self.set_window_icon()
@@ -411,6 +427,199 @@ class NovelMaster(QMainWindow):
         self.bind_text(menu, key, "setTitle")
         return menu
     
+    # ---------------- 托盘图标与全局媒体键（v1.3.9） ----------------
+
+    def action(self, action_id):
+        """按 id 取已登记的动作（托盘菜单复用主窗口的朗读动作）"""
+        return self._actions.get(action_id)
+
+    def speech_state(self):
+        """当前朗读状态（托盘提示用）"""
+        return self._speech_state
+
+    def apply_tray_settings(self):
+        """按配置显示 / 隐藏托盘图标（系统没有托盘时就只记日志）"""
+        if not self.config_manager.get("tray_enabled", True):
+            self._shutdown_tray()
+            return
+        if not TrayIcon.available():
+            self.logger.log("系统没有可用的托盘，托盘图标未创建", "WARN")
+            return
+        if self._tray_icon is None:
+            self._tray_icon = TrayIcon(self)
+        self._tray_icon.show()
+        self._tray_icon.refresh()
+
+    def _shutdown_tray(self):
+        """收掉托盘图标（菜单是它自己建的，得自己销毁）"""
+        tray, self._tray_icon = getattr(self, "_tray_icon", None), None
+        if tray is None:
+            return
+        # 托盘没了就只剩「关窗 = 退出」一条路，否则窗口会藏得找不回来
+        if not self.isVisible():
+            self.showNormal()
+            self.raise_()
+        tray.shutdown()
+
+    def _reset_check(self, action):
+        """把被拒的勾选退回去（触发函数里改 checked 会再发一次信号）"""
+        if action is None:
+            return
+        action.blockSignals(True)
+        action.setChecked(False)
+        action.blockSignals(False)
+
+    def toggle_tray_enabled(self, checked):
+        """切换「显示托盘图标」"""
+        if checked and not TrayIcon.available():
+            QMessageBox.warning(self, i18n.t("common.warning"),
+                                i18n.t("tray.unavailable"))
+            self._reset_check(getattr(self, "tray_action", None))
+            return
+        self.config_manager.set("tray_enabled", bool(checked))
+        self.logger.log(f"系统托盘: {'开启' if checked else '关闭'}")
+        self.apply_tray_settings()
+
+    def toggle_close_to_tray(self, checked):
+        """切换「关闭窗口时隐藏到托盘」"""
+        if checked and not TrayIcon.available():
+            QMessageBox.warning(self, i18n.t("common.warning"),
+                                i18n.t("tray.unavailable"))
+            self._reset_check(getattr(self, "tray_close_action", None))
+            return
+        self.config_manager.set("tray_close_to_tray", bool(checked))
+        self.logger.log(f"关闭窗口时隐藏到托盘: {'开启' if checked else '关闭'}")
+
+    def should_hide_to_tray(self):
+        """这次点 X 是不是该收进托盘而不是退出"""
+        if getattr(self, "_quitting_from_tray", False):
+            return False
+        if getattr(self, "_tray_icon", None) is None:
+            return False
+        return bool(self.config_manager.get("tray_close_to_tray", False))
+
+    def quit_from_tray(self):
+        """托盘菜单里的「退出程序」：这次真的退"""
+        self._quitting_from_tray = True
+        self.close()
+        QApplication.quit()
+
+    def _show_tray_notice(self):
+        """第一次收进托盘时冒个泡，免得用户以为程序已经退了"""
+        tray = getattr(self, "_tray_icon", None)
+        if tray is None or self.config_manager.get("tray_notice_shown", False):
+            return
+        tray.notify(i18n.t("tray.notice_title"), i18n.t("tray.notice_body"))
+        self.config_manager.set("tray_notice_shown", True)
+
+    def _refresh_tray(self):
+        """刷新托盘提示与菜单文案（切语言、显隐、朗读状态变化时调）"""
+        tray = getattr(self, "_tray_icon", None)
+        if tray is not None:
+            tray.refresh()
+
+    # ---- 全局媒体键（SMTC） ----
+
+    def apply_media_keys_settings(self):
+        """按配置启动 / 停止全局媒体键（winrt 是可选依赖，缺了就跳过）"""
+        if not self.config_manager.get("media_keys_enabled", False):
+            self._shutdown_media_keys()
+            return
+        if not media_keys_available():
+            reason = media_keys_unavailable_reason() or "未知原因"
+            self.logger.log(f"全局媒体键不可用: {reason}", "WARN")
+            return
+        if self._media_keys is None:
+            self._media_keys = MediaKeysController(self)
+            self._media_keys.action.connect(self.on_media_key_action)
+        title, chapter = self.media_panel_track()
+        self._media_keys_error_reported = False
+        self._media_keys.start(
+            playing=(self._speech_state == SpeechQueue.PLAYING),
+            title=title, subtitle=chapter)
+        # 会话是在自己的线程里建的，起来要一会儿；过一会儿再回头看看有没有报错
+        QTimer.singleShot(MEDIA_KEYS_CHECK_MS, self._report_media_keys_error)
+
+    def _report_media_keys_error(self):
+        """会话没建起来就告诉用户（只报一次，免得反复弹）"""
+        controller = getattr(self, "_media_keys", None)
+        if controller is None or getattr(self, "_media_keys_error_reported", False):
+            return
+        reason = controller.error()
+        if not reason:
+            return
+        self._media_keys_error_reported = True
+        self.logger.log(f"全局媒体键启动失败: {reason}", "WARN")
+        QMessageBox.warning(self, i18n.t("menu.media_keys"),
+                            i18n.t("msg.media_keys_failed", default="{error}",
+                                   error=reason))
+
+    def _shutdown_media_keys(self):
+        """停掉全局媒体键（它有自己的线程与消息泵，退出前必须收摊）"""
+        controller, self._media_keys = getattr(self, "_media_keys", None), None
+        if controller is None:
+            return
+        try:
+            controller.stop()
+        except Exception as e:  # noqa: BLE001
+            self.logger.log(f"停止全局媒体键失败: {e}", "WARN")
+
+    def media_panel_track(self):
+        """系统媒体面板上那两行字：书名 + 当前章节名（没开书就都空着）"""
+        if not self.current_file_path:
+            return "", ""
+        try:
+            title, _author = self.current_book_title()
+        except Exception as e:  # noqa: BLE001
+            if DEBUG_MODE:
+                self.logger.debug(f"读取书名失败: {e}")
+            title = ""
+        chapter = ""
+        reader = getattr(self, "current_reader", None)
+        if reader is not None:
+            try:
+                if isinstance(reader, FolderReader):
+                    inner = reader.get_current_reader()
+                    if inner is not None:
+                        chapter = inner.get_chapter_title(inner.current_chapter)
+                else:
+                    chapter = reader.get_chapter_title(reader.current_chapter)
+            except Exception as e:  # noqa: BLE001
+                if DEBUG_MODE:
+                    self.logger.debug(f"读取章节名失败: {e}")
+        return title or "", chapter or ""
+
+    def refresh_media_panel(self):
+        """把书名 / 章节名与朗读状态推给系统媒体面板（没开这项就什么都不做）"""
+        controller = getattr(self, "_media_keys", None)
+        if controller is None:
+            return
+        title, chapter = self.media_panel_track()
+        controller.set_track(title, chapter)
+        controller.set_playing(self._speech_state == SpeechQueue.PLAYING)
+
+    def on_media_key_action(self, action):
+        """键盘上的媒体键：转给朗读控制（动作名见 media_keys.BUTTON_ACTIONS）"""
+        handlers = {"toggle": self.toggle_speech, "stop": self.stop_speech,
+                    "next": self.next_sentence,
+                    "previous": self.previous_sentence}
+        handler = handlers.get(action)
+        if handler is None:
+            return
+        self.logger.log(f"全局媒体键: {action}")
+        handler()
+
+    def toggle_media_keys(self, checked):
+        """切换「媒体键控制朗读」（SMTC 会话要占一个静音音源，所以默认关闭）"""
+        if checked and not media_keys_available():
+            QMessageBox.information(self, i18n.t("menu.media_keys"),
+                                    i18n.t("msg.media_keys_missing"))
+            self._reset_check(getattr(self, "media_keys_action", None))
+            return
+        self.config_manager.set("media_keys_enabled", bool(checked))
+        self.logger.log(f"全局媒体键: {'开启' if checked else '关闭'}")
+        self.apply_media_keys_settings()
+
     def retranslate_ui(self):
         """按当前语言刷新整个界面（切换语言后调用，无需重启）"""
         for binding in self._text_bindings:
@@ -435,6 +644,8 @@ class NovelMaster(QMainWindow):
         # 朗读条上的按钮 / 开关文案（「开始朗读」等不在 _text_bindings 里，
         # 它在朗读条内部自己管）
         self.tts_bar.retranslate()
+        # 托盘提示与菜单文案（显示 / 隐藏、退出）
+        self._refresh_tray()
     
     def refresh_reader_text(self):
         """按当前语言重渲染正在显示的章节（保留章内阅读位置）"""
@@ -642,6 +853,34 @@ class NovelMaster(QMainWindow):
         self.share_progress_action.setChecked(
             self.config_manager.get("share_progress_versions", True))
         settings_menu.addAction(self.share_progress_action)
+
+        # 系统托盘（v1.3.9）：托盘图标本身，以及「关闭窗口时收进托盘」
+        self.tray_action = self.make_action("menu.tray_icon",
+                                            self.toggle_tray_enabled)
+        self.tray_action.setCheckable(True)
+        self.tray_action.setChecked(
+            self.config_manager.get("tray_enabled", True))
+        settings_menu.addAction(self.tray_action)
+
+        self.tray_close_action = self.make_action("menu.tray_close_hide",
+                                                  self.toggle_close_to_tray)
+        self.tray_close_action.setCheckable(True)
+        self.tray_close_action.setChecked(
+            self.config_manager.get("tray_close_to_tray", False))
+        settings_menu.addAction(self.tray_close_action)
+
+        # 全局媒体键（v1.3.9）：键盘上的播放 / 暂停、上一句 / 下一句直接控制朗读
+        # （会话要在音量合成器里占一个静音音源，所以默认关闭）
+        self.media_keys_action = self.make_action("menu.media_keys",
+                                                  self.toggle_media_keys)
+        self.media_keys_action.setCheckable(True)
+        self.media_keys_action.setChecked(
+            self.config_manager.get("media_keys_enabled", False))
+        if not media_keys_importable():
+            # winrt 没装：说明挂在 tooltip 上，点开关时还会再弹一次
+            self.bind_text(self.media_keys_action,
+                           "menu.media_keys_unavailable", "setToolTip")
+        settings_menu.addAction(self.media_keys_action)
         
         # 快捷键设置
         self.make_action("menu.shortcut_settings", self.open_shortcut_dialog,
@@ -869,6 +1108,9 @@ class NovelMaster(QMainWindow):
         self.update_progress()
         # 朗读相关配置（语速 / 开关 / 可用性）
         self.apply_speech_settings()
+        # 系统托盘与全局媒体键（v1.3.9）
+        self.apply_tray_settings()
+        self.apply_media_keys_settings()
     
     def apply_theme(self, theme_name):
         """应用主题。
@@ -1202,6 +1444,8 @@ class NovelMaster(QMainWindow):
         self.update_progress()
         # 正文换了：重排朗读句子表（正在朗读时接着读，见 sync_speech_content）
         self.sync_speech_content()
+        # 系统媒体面板上的章节名也跟着走
+        self.refresh_media_panel()
 
     # ---------------- 内嵌图片展示 ----------------
 
@@ -1224,6 +1468,11 @@ class NovelMaster(QMainWindow):
             self.on_activation_changed(self.isActiveWindow())
         elif event_type in (QEvent.Show, QEvent.WinIdChange):
             self.apply_native_titlebar(getattr(self, "_current_theme", None))
+            if event_type == QEvent.Show:
+                # 从托盘唤回来：「显示 / 隐藏主窗口」得跟着改文案
+                self._refresh_tray()
+        elif event_type == QEvent.Hide:
+            self._refresh_tray()
 
     def fit_document_images(self):
         """把超过阅读区宽度的内嵌图片缩小到阅读区宽度"""
@@ -3508,6 +3757,10 @@ class NovelMaster(QMainWindow):
         self._speech_state = state
         self.tts_bar.set_state(state)
         self._refresh_speech_action_text()
+        # 系统媒体面板上的播放 / 暂停状态（也决定系统送回 PLAY 还是 PAUSE）
+        self.refresh_media_panel()
+        # 托盘提示上的朗读状态
+        self._refresh_tray()
         # 倒计时只在朗读中走：暂停 / 停止时把秒表冻住
         self._sync_speech_timer()
         if state != SpeechQueue.IDLE:
@@ -3592,6 +3845,13 @@ class NovelMaster(QMainWindow):
 
     def closeEvent(self, event):
         """关闭事件"""
+        # 「关闭窗口时隐藏到托盘」：藏起来而不是退出（朗读会继续，v1.3.9）
+        if self.should_hide_to_tray():
+            event.ignore()
+            self.hide()
+            self._show_tray_notice()
+            return
+
         # 保存窗口设置
         self.config_manager.set("window_size", [self.width(), self.height()])
         self.config_manager.set("window_position", [self.x(), self.y()])
@@ -3611,6 +3871,9 @@ class NovelMaster(QMainWindow):
 
         # 停掉朗读并释放系统语音引擎（不释放的话进程可能压在句子里退不掉）
         self.shutdown_speech()
+
+        # 全局媒体键有自己的线程与消息泵，退出前先让它收摊
+        self._shutdown_media_keys()
 
         # 音色管理窗口的下载线程也得收（正在下就让它断在半路，.part 留着）
         dialog = self._tts_model_dialog
@@ -3633,6 +3896,9 @@ class NovelMaster(QMainWindow):
         # 释放阅读器（清理 ZIP/JAR/MOBI 等解压出来的临时文件）
         self.release_current_reader()
         
+        # 托盘图标（连带它自己建的那份菜单）
+        self._shutdown_tray()
+
         self.logger.log(f"{PROJECT_NAME} 正常退出")
         event.accept()
 
@@ -3656,6 +3922,7 @@ class NovelMaster(QMainWindow):
         base_title = f"{PROJECT_NAME} - {VERSION}"
         if not self.current_reader:
             self.setWindowTitle(base_title)
+            self.refresh_media_panel()
             return
 
         book_title = None
@@ -3678,3 +3945,5 @@ class NovelMaster(QMainWindow):
             self.setWindowTitle(title)
         else:
             self.setWindowTitle(base_title)
+        # 系统媒体面板上的书名也跟着走
+        self.refresh_media_panel()

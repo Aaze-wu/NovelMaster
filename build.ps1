@@ -805,6 +805,15 @@ else {
     Write-Info '朗读在线音色: 未安装 edge-tts，本次不带（不影响系统语音朗读）'
 }
 
+# 全局媒体键（v1.3.9）的可选依赖：pywinrt 投影包（同上，没装就跳过）
+if (Test-OptionalModule -Exe $buildPython -Module 'winrt') {
+    $nuitkaArgs += @('--include-package=winrt', '--include-package-data=winrt')
+    Write-Ok '全局媒体键: 已包含 winrt 投影'
+}
+else {
+    Write-Info '全局媒体键: 未安装 winrt，本次不带（设置里的开关会自动置灰）'
+}
+
 # ---------------- 执行打包 ----------------
 
 if (-not (Test-Path -LiteralPath $OutputDirPath)) {

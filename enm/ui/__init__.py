@@ -12,10 +12,11 @@ from .theme_qss import (SPLITTER_HANDLE_WIDTH, build_palette,
 from .titlebar import (apply_dark_mode, apply_titlebar_theme, available,
                        hide_border, reset_titlebar_theme,
                        supports_caption_color)
+from .tray import TrayIcon
 from .typography_dialog import TypographySettingsDialog
 
 __all__ = ["BookMergeDialog", "ChapterTree", "ContinueReadingDialog",
-           "NovelMaster",
+           "NovelMaster", "TrayIcon",
            "ShortcutSettingsDialog", "ThemeEditorDialog", "ThemePreviewWidget",
            "ThemeManagerDialog", "TypographySettingsDialog",
            "build_style_sheet", "build_palette", "color_on_accent",

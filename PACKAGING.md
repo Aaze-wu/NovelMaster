@@ -182,6 +182,8 @@ dist/
 - **sherpa-onnx**（可选）: 朗读的**离线神经音色**依赖（Apache-2.0，轮子自带 onnxruntime），
   Piper / Kokoro 音色靠它合成；**语音模型不进包**，首次使用时程序内下载（见下）
 - **edge-tts**（可选）: 朗读的**在线音色**依赖（MIT），提供微软 300+ 在线音色，需联网
+- **winrt-runtime / winrt-Windows.***（可选）: v1.3.9 的**全局媒体键**依赖
+  （pywinrt 投影，MIT），负责建起 SMTC 媒体会话并把媒体键回调转成朗读动作
 - **ebooklib**: EPUB文件处理
 - **lxml**: XML/HTML解析
 - **chardet**: 编码检测
@@ -303,6 +305,58 @@ v1.3.8 起朗读多两套引擎，都是**可选依赖**：缺任何一个都不
 验证：跑发布版 →「朗读」→「朗读语音」，顶部「朗读引擎」里应能看到
 「离线神经音色」与「在线音色」；点「音色管理…」应能列出 4 个模型（含体积与状态）。
 
+### 可选增强：全局媒体键与系统媒体面板（winrt / SMTC）
+
+v1.3.9 起，设置里多了一项**「媒体键控制朗读」**（默认关）。打开之后：键盘上的
+媒体键（播放/暂停、上一句、下一句）直接控制朗读，任务栏弹出的媒体浮层（SMTC）
+上显示**书名 + 当前章节**。它靠 **pywinrt 投影**实现，是一组包，全装齐：
+
+```powershell
+.\\.venv\\Scripts\\python.exe -m pip install winrt-runtime ^
+    winrt-Windows.Foundation winrt-Windows.Foundation.Collections ^
+    winrt-Windows.Media winrt-Windows.Media.Core ^
+    winrt-Windows.Media.Control winrt-Windows.Media.Playback ^
+    winrt-Windows.Storage winrt-Windows.Storage.Streams
+```
+
+两个打包脚本会探测打包解释器里有没有 `winrt`，装了才把下面两行加上，没装就跳过：
+
+```text
+--include-package=winrt
+--include-package-data=winrt
+```
+
+`enm/managers/media_keys.py` 是**懒导入**：只有开关打开且真要用时才 `import winrt`，
+所以没装的时候启动速度、其余功能都不受影响，设置里的开关会自动置灰（附说明）。
+
+> **为什么必须 `--include-package`？** pywinrt 的投影模块虽然不在启动导入链上，
+> 但冻结版要建 SMTC 会话就必须同时具备 `winrt/_winrt.pyd` 与
+> `winrt/windows/media/...` 这批子包；只靠隐式收集容易漏，因此显式带上更稳。
+>
+> **它会多出一条静音音频会话。** SMTC 会话需要有一个正在播放的媒体源撑着，
+> 所以程序在启动媒体键时会循环播放一段**内部生成的 10 秒静音 WAV**
+> （写在 `%TEMP%` 下的 `NovelMaster_silence.wav`）。因此音量合成器（音量图标
+> 右键 →「打开音量合成器」）里会多出一条 NovelMaster 的条目，这是**预期现象**，
+> 它不发声、也不占用声卡通道；关闭程序会一并退出。
+>
+> **媒体浮层上的应用名靠安装程序写在快捷方式上。** Windows 是把「AUMID → 应用名」
+> 记在**带 `AppUserModelID` 属性的开始菜单快捷方式**里的。实测只调
+> `SetCurrentProcessExplicitAppUserModelID`、或者只往注册表
+> `HKCU\Software\Classes\AppUserModelId\<AUMID>` 写 `DisplayName`，shell 的
+> `AppsFolder` 都**查不到**这个 ID，浮层标题照旧写「未知应用」；写进快捷方式后
+> 立刻能查到。所以 `NovelMaster-Release.iss` 的 `[Icons]` 带
+> `AppUserModelID: "Aaze_wu.NovelMaster.MediaKeys"`（必须与 `enm/managers/media_keys.py`
+> 里的 `APP_USER_MODEL_ID` 一致），重装/覆盖安装即生效。程序本身另外会往
+> `HKCU\Software\Classes\AppUserModelId\<AUMID>` 幂等写 `DisplayName`（跟随界面
+> 语言，取 `app.name`）与 `IconUri`（`icon/icon.ico`），那份只影响提示类界面，
+> 不需要管理员权限，写失败也不影响按键。
+
+验证：**用安装包装一次**（覆盖安装即可，安装程序会重建带 AUMID 的开始菜单快捷方式）
+→ 设置里打开「媒体键控制朗读」→ 打开一本书并开始朗读，
+按键盘媒体键应能控制朗读，任务栏媒体浮层应显示书名与章节，
+**左上角的应用名应是 NovelMaster（不是「未知应用」）**。
+注意：直接跑 `dist` 里的绿色版没有快捷方式，浮层仍会显示「未知应用」。
+
 ### 排除的模块
 
 - 测试文件 (`*.tests`, `*.test`)
@@ -404,6 +458,17 @@ pip install -i https://mirrors.aliyun.com/pypi/simple/ --upgrade nuitka
 这两种情况都只是“音色少一些”，不影响朗读本身；开发环境下
 `python -c "from enm.managers.tts import available_engines; print(available_engines())"`
 应该把 `sapi-com` 排在第一个。
+
+### 9. 设置里「媒体键控制朗读」是灰的，或按了媒体键没反应
+
+- **灰的**：打包解释器里没装 `winrt` 投影包（或装了但没带进包）。对照开发环境：
+  `python -c "from enm.managers.media_keys import media_keys_importable; print(media_keys_importable())"`
+  应为 `True`；打包版可在安装日志里搜“全局媒体键”一行，看打包时带没带；
+- **能勾但不响应**：媒体键靠 SMTC 会话回调，分发是**全局**的，不要求窗口在前台，
+  但需要进程里有一个真实顶层窗口（最小化到托盘也可以）。若完全不理，
+  检查是不是被别的播放器（浏览器 / 音乐软件）抢了会话；
+- **任务栏浮层显示的是「未知」**：说明会话建起来了但没写元数据，确认已打开书籍
+  （没开书时浮层标题为空是正常的）。
 ## 🔄 更新打包
 
 ### 代码更新后

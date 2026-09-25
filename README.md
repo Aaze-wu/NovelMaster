@@ -22,10 +22,15 @@
   不联网、免费）与**在线音色**（微软 322 个在线音色），模型首次使用时在程序内按需下载
   （带进度、续传与镜像），安装包不会变大
 - 🎨 **主题系统**: 内置浅色 / 深色，13 个颜色字段 + 可选排版，16 套预设配色与一键派生，
-  支持新建、复制、重命名、导入导出
-- 📐 **排版可调**: 行距与段间距独立可调（`Ctrl+Shift+P`），“设置 → 排版设置”里拖一下就实时试排，
+  支持新建、复制、重命名、导入导出- 📐 **排版可调**: 行距与段间距独立可调（`Ctrl+Shift+P`），“设置 → 排版设置”里拖一下就实时试排，
   也可以写进主题里跟着主题走
 - 🪟 **标题栏上色**: 可让 Windows 11 原生标题栏跟随主题配色（默认关闭）
+- 📌 **系统托盘（v1.3.9）**: 托盘图标默认就开着，可选“关闭窗口时隐藏到托盘”，
+  右键菜单能显示 / 隐藏窗口、控制朗读、切音色、真退出；悬停提示显示书名与朗读状态
+- ⏯ **全局媒体键（v1.3.9）**: 在设置里打开“媒体键控制朗读”后，键盘上的播放/暂停、
+  上一句 / 下一句直接控制朗读，任务栏媒体浮层（SMTC）显示**书名 + 当前章节**
+  （需要可选的 `winrt` 投影包，缺了会自动置灰；浮层上的应用名要靠安装包写进开始
+  菜单快捷方式，绿色版会显示「未知应用」，见[下文](#全局媒体键smtc)）
 - ⌨️ **自定义快捷键**: 全部功能可改键（含方向键翻章），自动检测按键冲突
 - 🌍 **多语言支持**: 内置简体中文、繁体中文和英语，切换后界面立即刷新（无需重启）；
   往 `lang/` 里放一个 JSON 文件就能自动多出一种语言
@@ -108,11 +113,21 @@ pip install PyQt5 PyQtWebEngine ebooklib lxml Pillow python-docx chardet qdarkst
 | `pywin32>=306` | 朗读走 `sapi-com`，能看到 OneCore 语音库（中文多出 Kangkang / Yaoyao） | 回落 `QTextToSpeech`，功能一样齐全，音色少一些 |
 | `sherpa-onnx>=1.13.8` | 朗读的**离线神经音色**（Piper / Kokoro，Apache-2.0，轮子自带 onnxruntime） | 菜单里没有“离线神经音色” |
 | `edge-tts>=7.2.8` | 朗读的**在线音色**（微软 322 个在线音色，需联网，MIT） | 菜单里没有“在线音色” |
+| `winrt-runtime` / `winrt-Windows.*` | **全局媒体键**（v1.3.9）：媒体键控制朗读 + 任务栏媒体浮层显示书名/章节（pywinrt 投影，MIT） | 设置里的“媒体键控制朗读”置灰 |
 
 想一次装齐：
 
 ```bash
 pip install pywin32 sherpa-onnx edge-tts
+```
+
+媒体键那一组包名字较多，需要时单独装（`winrt` 与 `winsdk` 是两个不同项目，
+**本项目用的是前者**）：
+
+```bash
+pip install winrt-runtime winrt-Windows.Foundation winrt-Windows.Foundation.Collections \
+    winrt-Windows.Media winrt-Windows.Media.Core winrt-Windows.Media.Control \
+    winrt-Windows.Media.Playback winrt-Windows.Storage winrt-Windows.Storage.Streams
 ```
 
 > 语音**模型**不在依赖里，也不进安装包：首次使用时在“朗读 → 音色管理…”里按需下载
@@ -487,8 +502,75 @@ Kokoro 约 140 MB（解压后 200 MB 上下）。只有解压后的模型目录�
 - **离线神经音色切到下一句为什么几乎没停顿？** 神经音色合成本身比朗读快（Piper 实测
   RTF 0.15、Kokoro 0.7），而且程序会在读当前句时**提前合成下一句**，所以基本接得上；
   预合成用的是独立线程，合成期间界面照常响应（实测最大卡顿 0.07 秒）。
-- **想在看书时同时做别的事，有托盘 / 媒体键吗？** 托盘与全局媒体键（播放/暂停）
-  在下一个版本（1.3.9）做，本版没有。
+- **想在看书时同时做别的事，有托盘 / 媒体键吗？** v1.3.9 起都有：见
+  [托盘与全局媒体键](#托盘与全局媒体键v139)。托盘图标**默认就开着**，
+  “关闭窗口时隐藏到托盘”要手动开；“媒体键控制朗读”**默认关**，
+  在“设置”菜单里打开（需要可选的 `winrt` 投影包）。
+
+## 托盘与全局媒体键（v1.3.9）
+
+两件事相互独立，都在“设置”菜单里开关：
+
+| 菜单项 | 默认 | 说明 |
+| --- | --- | --- |
+| 「显示托盘图标」 | **开** | 关掉之后托盘图标和菜单一起收摊（窗口会先显示出来，不会藏得找不回来） |
+| 「关闭窗口时隐藏到托盘」 | 关 | 打开后点 X 只是藏起来，程序继续跑；真正退出用托盘菜单的「退出程序」 |
+| 「媒体键控制朗读」 | 关 | 键盘媒体键 + 任务栏媒体浮层，需要可选的 `winrt`；没装就置灰 |
+
+### 托盘图标
+
+- **悬停提示**：`NovelMaster · 空闲/朗读中/已暂停`，开了书的话第二行是书名
+- **右键菜单**（11 项）：显示 / 隐藏主窗口、开始 / 暂停朗读、停止朗读、上一句、
+  下一句、朗读语音、快捷键设置、退出程序；朗读那几项直接复用主窗口的动作，
+  所以按键提示、启用 / 禁用状态跟菜单里完全一致
+- **左键双击 / 单击**：显示或隐藏主窗口（隐藏时会把窗口恢复成正常大小并抬到前面）
+- **第一次收进托盘会冒一个气泡**（“程序仍在后台运行”），只提示一次，
+  之后不再打扰；记在配置的 `tray_notice_shown` 里
+- 系统没有托盘时（少数精简版系统）只写一条日志，不建图标，功能不影响
+
+### 全局媒体键（SMTC）
+
+打开「媒体键控制朗读」后：
+
+| 键盘按键 | 效果 |
+| --- | --- |
+| 播放 / 暂停 | 开始或暂停朗读（按当前状态决定） |
+| 停止 | 停止朗读 |
+| 下一曲 / 上一曲 | 下一句 / 上一句 |
+
+同时任务栏弹出 / Windows 的媒体面板（`Win+` 音量、锁屏界面、蓝牙耳机上的按键等）
+会显示**书名 + 当前章节名**，封面位就是程序图标。
+
+- **它是全局的**：不要求窗口在前台，最小化到托盘也生效；也不需要管理员权限
+- **同时只能有一个播放器占用**：如果浏览器 / 音乐软件正占着媒体会话，
+  系统的媒体键可能先给它们，可以关掉那边的标签页 / 暂停一下
+- **会多一条静音音频会话**：媒体会话需要有个“正在播放”的音源撑着，
+  程序在内部生成一段 10 秒静音 WAV 循环播（写在 `%TEMP%\NovelMaster_silence.wav`）。
+  所以音量合成器里会多一条 NovelMaster，**不出声、不占声卡**，关程序就一起退。
+  这是预期现象，不是 bug
+- **浮层上的应用名是安装程序写进快捷方式的**：Windows 把「AUMID → 应用名」记在
+  **带 `AppUserModelID` 属性的开始菜单快捷方式**上。光给进程设 AUMID、或者只往注册表
+  `HKCU\Software\Classes\AppUserModelId\<AUMID>` 写 `DisplayName`，系统都**翻不出**这个
+  应用叫什么，浮层标题就会写成「未知应用」——所以安装包会在开始菜单快捷方式上写
+  `Aaze_wu.NovelMaster.MediaKeys`。**用安装包装一次**（覆盖安装即可）浮层就显示
+  NovelMaster；直接跑 `dist` 里的绿色版没有快捷方式，会显示「未知应用」。注册表那份
+  `DisplayName` / `IconUri` 也照写（跟随界面语言，取 `app.name`；MuseHub、Watt Toolkit
+  这类桌面应用都这么登记），只影响提示类界面，**不需要管理员权限**，失败也不影响按键
+- **没用 `winrt` 时怎么办**：开关会置灰，鼠标悬停有说明；
+  不装也不影响其它任何功能（模块 `enm/managers/media_keys.py` 是懒导入，
+  只有开关打开且真要用时才 `import winrt`，所以没装也不会拖慢启动）
+- **实现要点**（给想改的人）：媒体键回调必须跑在**单独的 STA 线程 + 自己的消息泵**上，
+  Qt 的事件循环收不到这些回调；另外要先把 `player.command_manager.is_enabled`
+  关掉再开 `smtc.is_enabled`，否则会话建起来也不响应按键
+
+### 相关配置
+
+| 配置键 | 默认值 | 说明 |
+| --- | --- | --- |
+| `tray_enabled` | `true` | 是否显示托盘图标 |
+| `tray_close_to_tray` | `false` | 关窗是否收进托盘 |
+| `tray_notice_shown` | `false` | 第一次收进托盘的气泡提示是否已经提示过 |
+| `media_keys_enabled` | `false` | 是否启用全局媒体键 |
 
 ## 多语言支持
 
@@ -585,6 +667,8 @@ Reader-Equb/
   `titlebar_follow_theme` / `typography_follow_theme` 两个开关（均默认关闭）、
   `share_progress_versions`（同名书籍共用阅读进度，默认开启）与
   `progress_share_ignored`（用户选择过「各自独立」的记录）），
+  `tray_enabled` / `tray_close_to_tray` / `tray_notice_shown` /
+  `media_keys_enabled`（托盘与全局媒体键，见「托盘与全局媒体键」），
   以及朗读相关的 `tts_rate` / `tts_volume` / `tts_voice_name` / `tts_engine` /
   `tts_auto_next_chapter` / `tts_highlight` / `tts_auto_scroll` /
   `tts_split_max_chars` / `tts_bar_collapsed`（见「朗读功能」）
@@ -686,6 +770,7 @@ enm/
 │   ├── tts_neural.py     # SherpaBackend：离线神经音色（Piper / Kokoro）
 │   ├── tts_edge.py       # EdgeBackend：在线音色（edge-tts，MP3 + 清单缓存）
 │   ├── tts_models.py     # 模型管理：体积/URL/镜像、断点续传下载、解压、占用与删除
+│   ├── media_keys.py     # 全局媒体键：SMTC 会话（独立 STA 线程 + 消息泵），winrt 可选
 │   └── theme.py          # ThemeManager：主题的校验/加载/保存/导入导出，以及内置主题与预设配色
 ├── readers/
 │   ├── base.py           # BaseReader、ReaderError 与通用工具函数
@@ -708,6 +793,7 @@ enm/
     ├── tts_model_dialog.py  # TtsModelDialog「音色管理」：模型列表/体积/状态/下载进度/删除（非模态）
     ├── tts_voice_dialog.py  # TtsVoiceDialog「选择音色」：搜索 + 模型筛选 + 引擎下拉的音色列表（非模态）
     ├── chapter_tree.py   # ChapterTree：章节名被截断时悬停显示全名
+    ├── tray.py          # TrayIcon：托盘图标、右键菜单、关窗收托盘与一次性气泡提示
     ├── book_merge_dialog.py  # BookMergeDialog：同名书籍共用记录前询问用户
     ├── continue_dialog.py  # ContinueReadingDialog「继续阅读」面板
     ├── shortcut_dialog.py  # ShortcutSettingsDialog 快捷键设置面板
@@ -833,6 +919,65 @@ html = inline_images(html, resolve)
 欢迎提交 Issue 和 Pull Request！
 
 ## 更新日志
+
+### v1.3.9
+
+本版做两件“看书时干别的事”的事：**系统托盘**与**全局媒体键**。
+两件都是纯增量，**没有任何必需依赖变化**；媒体键的 `winrt` 是可选依赖，
+没装时开关自动置灰，其余功能一字不差。
+
+- **新增系统托盘图标** `enm/ui/tray.py`（托盘图标默认**开**）：
+  - 右键菜单 11 项：显示 / 隐藏主窗口、开始 / 暂停朗读、停止朗读、上一句、下一句、
+    朗读语音、快捷键设置、退出程序 —— 朗读那几项直接复用主窗口的 `QAction`，
+    所以按键提示与启用状态跟主菜单里完全一致，不会跑偏
+  - 悬停提示两行：`NovelMaster · 空闲/朗读中/已暂停` + 书名；
+    切语言、显隐窗口、朗读状态变化时都会刷新
+  - **可选“关闭窗口时隐藏到托盘”**（默认关）：打开后点 X 只是藏起来，
+    真正退出走托盘菜单的「退出程序」（`_quitting_from_tray` 标记，不会被“收托盘”截住）
+  - **第一次收进托盘冒一次气泡**（“程序仍在后台运行”），只提示一次，
+    记在 `tray_notice_shown` 里；免得用户以为已经退了
+  - 托盘关掉时会把窗口先显示出来再拆图标，不会把程序藏得找不回来；
+    系统没有托盘时只写一条日志
+- **新增全局媒体键（SMTC）** `enm/managers/media_keys.py`（默认**关**，
+  在“设置 → 媒体键控制朗读”里打开）：
+  - 键盘 **播放/暂停 → 开始/暂停朗读**、**停止 → 停止朗读**、
+    **上一曲/下一曲 → 上一句/下一句**；播放与暂停都映射成“切换”，
+    因为会话的 `playback_status` 跟朗读状态是同步的，系统自然只发该发的那一个
+  - **任务栏媒体浮层显示书名 + 当前章节**（`music_properties.title` / `.artist`，
+    各截到 128 字符），封面位是程序图标；翻章、开关书、朗读状态变化都会实时刷新
+  - 分发是**全局**的：窗口不必在前台，最小化到托盘也照收；不需要管理员权限，
+    也没有用 `RegisterHotKey`（那会真占住键盘热键，别的播放器就用不了了）
+  - **踩过的两个坑**（都写进注释了）：媒体键回调必须跑在**单独的 STA 线程 +
+    自己的 `PeekMessage` 消息泵**上（Qt 的事件循环根本收不到；MTA 与主线程创建
+    都是 0 命中，实测 18/18 可用、延迟约 0.1 秒）；另外必须先把
+    `player.command_manager.is_enabled` 关掉再开 `smtc.is_enabled`，顺序反了会话在
+    任务栏看得见但按键不响应
+  - **会话靠一段自生成的 10 秒静音 WAV 循环**撑着（写在 `%TEMP%` 下），
+    所以音量合成器里会多一条**静音**的 NovelMaster 会话 —— 预期现象，
+    不出声、不占声卡，退出时一并收摊
+  - **浮层上的应用名靠安装程序写在快捷方式上**：Windows 把「AUMID → 应用名」记在
+    **带 `AppUserModelID` 属性的开始菜单快捷方式**里。实测只调
+    `SetCurrentProcessExplicitAppUserModelID`、或者只往注册表
+    `HKCU\Software\Classes\AppUserModelId\<AUMID>` 写 `DisplayName`，shell 的
+    `AppsFolder` 都**查不到**这个 ID，标题照旧是「未知应用」；写进快捷方式后立刻能查到。
+    所以 `InstallerMakerScript/NovelMaster-Release.iss` 的 `[Icons]` 带
+    `AppUserModelID: "Aaze_wu.NovelMaster.MediaKeys"`（与代码里的 `APP_USER_MODEL_ID`
+    必须一致）；注册表那份 `DisplayName`（跟随界面语言，取 `app.name`）与 `IconUri`
+    也照写，只影响提示类界面，值一样就不动注册表，失败只影响显示名
+  - `winrt` 一律**懒导入**（先 `find_spec` 探测再真导入），没装时开关置灰 +
+    悬停说明 + 点一下弹说明框，启动速度不受影响
+- **适配**：`changeEvent`、`closeEvent`、`update_window_title()`、
+  `display_content()`、`on_speech_state_changed()`、`retranslate_ui()` 都接上了
+  托盘刷新与媒体面板刷新；`closeEvent` 里先停媒体键（它有自己的线程，
+  退出前必须收摊），再关托盘
+- **语言文件**：三份同步新增 `menu.tray_icon` / `menu.tray_close_hide` /
+  `menu.media_keys` / `menu.media_keys_unavailable`、整个 `tray.*` 段（7 条）
+  与 `msg.media_keys_missing` / `msg.media_keys_failed`；
+  顺手清掉了一条 v1.3.8 遗留的占位键 `menu.share_progress_placeholder`。
+  三份文件逐键对称，各 **507** 个叶子键（`tts.*` 下共 111 条）
+- **打包**：两个打包脚本会先探测打包解释器里有没有 `winrt`，装了才加上
+  `--include-package=winrt` / `--include-package-data=winrt`；没装就跳过，
+  **可选依赖缺失不会让打包失败**。`requirements.txt` 与 `PACKAGING.md` 都补了说明
 
 ### v1.3.8
 

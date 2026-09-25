@@ -63,6 +63,18 @@ class ConfigManager:
             "tts_auto_scroll": True,
             "tts_split_max_chars": 120,
             "tts_bar_collapsed": False,
+            # 托盘与全局媒体键（v1.3.9）：
+            # * tray_enabled —— 显示系统托盘图标（关掉就完全退回旧行为）
+            # * tray_close_to_tray —— 关闭窗口时只是藏到托盘（默认关闭：默认行为
+            #   必须是「点叉就是退出」，不然用户会以为程序已经关了）
+            # * tray_notice_shown —— 「已藏到托盘」的提示只弹一次，弹过就记下来
+            # * media_keys_enabled —— 键盘上的播放/暂停、上一首/下一首交给
+            #   NovelMaster（要 winrt 组件，且会在音量合成器里多一个静音会话，
+            #   所以默认关闭，由用户在设置里打开）
+            "tray_enabled": True,
+            "tray_close_to_tray": False,
+            "tray_notice_shown": False,
+            "media_keys_enabled": False,
             "shortcuts": {}
         }
         self.config = self.load_config()

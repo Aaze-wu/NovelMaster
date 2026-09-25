@@ -77,6 +77,10 @@
     "typography_follow": "排版跟随主题",
     "share_progress": "同名书籍共用阅读进度",
     "shortcut_settings": "快捷键设置",
+    "tray_icon": "显示托盘图标",
+    "tray_close_hide": "关闭窗口时隐藏到托盘",
+    "media_keys": "媒体键控制朗读",
+    "media_keys_unavailable": "需要 winrt 组件（可选依赖，见 README），本机没装上",
     "language": "语言",
     "help": "帮助",
     "about": "关于"
@@ -95,6 +99,15 @@
     "toggle_show": "显示",
     "toggle_hide": "隐藏",
     "progress": "阅读进度: {percent}%"
+  },
+  "tray": {
+    "toggle_show": "显示主窗口",
+    "toggle_hide": "隐藏主窗口",
+    "tooltip": "{app} · {state}",
+    "quit": "退出程序",
+    "unavailable": "系统托盘不可用，托盘图标开不了（远程桌面等环境有时会这样）。",
+    "notice_title": "NovelMaster 还在后台运行",
+    "notice_body": "窗口已收进托盘，朗读不受影响。双击托盘图标可以重新打开；要彻底退出，请右键图标选「退出程序」。"
   },
   "dialog": {
     "open_file": "打开文件",
@@ -126,7 +139,9 @@
     "no_displayable_content": "文件中没有可显示的内容。",
     "no_displayable_content_folder": "无法读取该文件或文件中没有可显示的内容。",
     "tts_unavailable": "这台电脑上没有可用的语音引擎，朗读功能无法使用。",
-    "tts_empty": "这一章没有可朗读的文字（可能只有图片）。"
+    "tts_empty": "这一章没有可朗读的文字（可能只有图片）。",
+    "media_keys_missing": "本机没装 winrt 组件（可选依赖），全局媒体键用不了。",
+    "media_keys_failed": "全局媒体键启动失败：{error}"
   },
   "typography": {
     "hint": "行距与段间距作用在阅读区正文上。段间距是相邻两段之间的空白（像素），Qt 自带约 24，所以填 24 就是原来的样子。",

@@ -77,6 +77,10 @@
     "typography_follow": "Typography Follows Theme",
     "share_progress": "Share Progress Between Versions",
     "shortcut_settings": "Keyboard Shortcuts",
+    "tray_icon": "Show Tray Icon",
+    "tray_close_hide": "Hide to Tray on Close",
+    "media_keys": "Media Keys Control Reading",
+    "media_keys_unavailable": "Requires the winrt component (an optional dependency, see README); it is not installed",
     "language": "Language",
     "help": "Help",
     "about": "About"
@@ -95,6 +99,15 @@
     "toggle_show": "Show",
     "toggle_hide": "Hide",
     "progress": "Reading progress: {percent}%"
+  },
+  "tray": {
+    "toggle_show": "Show Main Window",
+    "toggle_hide": "Hide Main Window",
+    "tooltip": "{app} · {state}",
+    "quit": "Quit",
+    "unavailable": "The system tray is unavailable, so the tray icon cannot be shown (this happens in some remote desktop sessions).",
+    "notice_title": "NovelMaster is still running",
+    "notice_body": "The window was moved to the tray; reading aloud continues. Double-click the tray icon to bring it back, or right-click it and choose Quit to exit completely."
   },
   "dialog": {
     "open_file": "Open File",
@@ -126,7 +139,9 @@
     "no_displayable_content": "This file has no displayable content.",
     "no_displayable_content_folder": "Cannot read this file, or it has no displayable content.",
     "tts_unavailable": "No speech engine is available on this computer, so reading aloud cannot be used.",
-    "tts_empty": "This chapter has no text to read aloud (it may contain images only)."
+    "tts_empty": "This chapter has no text to read aloud (it may contain images only).",
+    "media_keys_missing": "The winrt component (an optional dependency) is not installed, so global media keys cannot be used.",
+    "media_keys_failed": "Failed to start global media keys: {error}"
   },
   "typography": {
     "hint": "Line spacing and paragraph spacing apply to the reading area. Paragraph spacing is the blank space between two paragraphs in pixels; Qt's own default is about 24, so 24 means the original look.",
