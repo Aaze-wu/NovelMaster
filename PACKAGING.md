@@ -14,7 +14,7 @@
 | 基本打包（独立目录版） | `build.bat` | `build.ps1` |
 | 高级打包 | `build-advanced.bat` | `build-advanced.ps1` |
 | **一键发布（清理 + 打包 + 安装包）** | `release.bat` | `release.ps1` |
-| **高级发布（可调模式 / 优化级别）** | `release-advanced.bat` | `release-advanced.ps1` |
+| **高级发布（可调模式 / 优化级别，不带参数时会询问）** | `release-advanced.bat` | `release-advanced.ps1` |
 | 清理产物 | `clean.bat` | `clean.ps1` |
 | 运行程序 | `run.bat` / `run_debug.bat` | `run.ps1` / `run_debug.ps1` |
 
@@ -50,6 +50,7 @@
 ### 高级打包脚本 (`build-advanced.ps1` / `build-advanced.bat`)
 
 - 提供多种打包选项（`-Mode onefile|standalone|debug`、`-Optimize default|full`）
+- **不带参数运行时会依次询问**打包模式与优化级别，直接回车就是默认值
 - 支持调试模式和优化级别选择
 - 更详细的配置和错误处理
 - 同样支持解释器自动发现、Nuitka 自动回退与镜像源安装
@@ -94,20 +95,44 @@
 .\release-advanced.ps1 -DryRun -NoPause     # 只预览
 ```
 
+和 `build-advanced.ps1` 一样，**不带参数运行时它会先交互式问一遍**（双击
+`release-advanced.bat` 时很方便）：
+
+```
+请选择打包模式:
+  1. 独立目录模式 (推荐，安装包需要它)
+  2. 单文件模式 (不会生成安装包)
+  3. 调试模式 (不会生成安装包)
+请选择 (1/2/3, 默认1):
+
+请选择优化级别:
+  1. 默认优化 (编译更快)
+  2. 最大优化 (启用 LTO，编译更慢、体积更小)
+请选择 (1/2, 默认2):
+
+是否生成安装包? (y/n, 默认y):
+```
+
+一路回车 = 和以前的行为完全一致（独立目录 + LTO + 生成安装包）。已在参数里显式给过
+的那一项不会再问（例如给了 `-Mode standalone` 就只问优化级别和安装包）。
+
+> `release.ps1` 调用它时带的是 `-NonInteractive`，所以一键脚本**永远不弹问题**。
+> 想在无人值守 / CI 里调高级版，也请加上 `-NonInteractive`。
+
 | 参数 | 说明 |
 | --- | --- |
-| `-Mode` | `standalone`（默认，目录版）/ `onefile` / `debug`；只有目录版会生成安装包 |
-| `-Optimize` | `full`（默认，带 `--lto=yes`，慢但快）/ `default` |
+| `-Mode` | `standalone`（默认，目录版）/ `onefile` / `debug`；只有目录版会生成安装包。不传则交互询问 |
+| `-Optimize` | `full`（默认，带 `--lto=yes`，慢但快）/ `default`。不传则交互询问 |
 | `-Python` / `-NuitkaPython` | 转发给 `build-advanced.ps1` 的打包解释器 |
 | `-Mirror` | pip 镜像源，默认 `auto` |
 | `-OutputDir` | 程序产物目录，默认 `dist` |
 | `-InstallerOutputDir` | 安装包输出目录，默认 `InstallerOutput` |
 | `-IsccPath` | 手动指定 `ISCC.exe`，不指定则自动查找 |
 | `-InstallerVersion` | 覆盖安装包版本号，不指定则取 `enm\constants.py` 里的 `VERSION` |
-| `-SkipClean` / `-SkipBuild` / `-SkipInstaller` | 跳过对应步骤（`-SkipBuild` 会自动跳过清理） |
+| `-SkipClean` / `-SkipBuild` / `-SkipInstaller` | 跳过对应步骤（`-SkipBuild` 会自动跳过清理）。不传 `-SkipInstaller` 时交互询问一次 |
 | `-OpenOutput` / `-OpenBuildOutput` | 完成后打开对应目录 |
 | `-DryRun` | 只打印要执行的命令 |
-| `-NonInteractive` / `-NoPause` | 不提示确认 / 结束后不等待按键（供批处理或 CI 调用） |
+| `-NonInteractive` / `-NoPause` | 不询问任何问题 / 结束后不等待按键（供批处理或 CI 调用） |
 
 相对路径按**项目根目录**解析，也接受绝对路径。
 
@@ -149,7 +174,14 @@
 ### 方法二：使用高级打包脚本
 
 ```powershell
-.\build-advanced.ps1     # 或双击 build-advanced.bat
+.\build-advanced.ps1     # 或双击 build-advanced.bat（会询问模式和优化级别）
+```
+
+### 方法三：一键出安装包（推荐发版时用）
+
+```powershell
+.\release.ps1            # 或双击 release.bat（全自动，不询问）
+.\release-advanced.ps1   # 带交互选项的版本
 ```
 
 ### 常用参数
@@ -601,6 +633,12 @@ winget install JRSoftware.InnoSetup
 .\build.ps1
 ```
 
+或者一条命令搞定（模式选 1，安装包选 n）：
+
+```powershell
+.\release-advanced.ps1     # 也可以双击 release-advanced.bat
+```
+
 ### 依赖更新后
 
 ```powershell
@@ -642,6 +680,7 @@ winget install JRSoftware.InnoSetup
 - 避免安全软件误报
 
 ## 📋 发布检查清单
+
 - [ ] `enm\constants.py` 里的 `VERSION` 已改成新版本号
 - [ ] 跑 `.\release.ps1` 一次完成打包 + 安装包
 - [ ] 安装包已在 `InstallerOutput\NovelMaster-Release<版本号>.exe`
