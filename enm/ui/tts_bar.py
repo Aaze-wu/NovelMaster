@@ -126,6 +126,8 @@ class TtsBar(QWidget):
         #: （记下来才能切语言时重渲染，不用让主窗口再报一次）
         self._timer_seconds = 0
         self._timer_chapter = False
+        #: 临时提示（如「正在下载音色模型 45%」，v1.3.8）：非空时顶掉状态文字
+        self._notice = ""
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 2, 6, 2)
@@ -297,7 +299,10 @@ class TtsBar(QWidget):
         self.timer_combo.blockSignals(blocked)
 
     def _refresh_status(self):
-        """状态栏文案：``朗读中 · 第 3/128 句``"""
+        """状态栏文案：``朗读中 · 第 3/128 句``（有临时提示就先显示提示）"""
+        if self._notice:
+            self.status_label.setText(self._notice)
+            return
         state_key = {"playing": "tts.state.playing",
                      "paused": "tts.state.paused"}.get(self._state, "tts.state.idle")
         state_text = i18n.t(state_key)
@@ -346,6 +351,15 @@ class TtsBar(QWidget):
         """当前句位置（``index`` 从 0 开始，-1 表示没有句子）"""
         self._index = int(index)
         self._total = int(total)
+        self._refresh_status()
+
+    def set_notice(self, text):
+        """显示一句临时提示（传空串恢复寻常的状态文字）
+
+        下载音色模型要几分钟，用户在正文里等着的时候得看得见进度，
+        所以借朗读条的这一行；提示优先于「朗读中 · 第 x/y 句」。
+        """
+        self._notice = str(text or "")
         self._refresh_status()
 
     def set_rate(self, rate):

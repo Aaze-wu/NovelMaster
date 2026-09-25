@@ -488,6 +488,10 @@ class TtsBackend(QObject):
     #: 引擎标识（只用于日志）
     name = "base"
 
+    #: 超时倍率：系统引擎是「开口就读」，神经引擎要先合成，所以它的
+    #: 超时（:func:`estimate_speech_ms`）得相应放宽，否则会误判成卡死。
+    timeout_factor = 1.0
+
     def available(self):
         """引擎是否可用"""
         return False
@@ -514,6 +518,13 @@ class TtsBackend(QObject):
 
     def speak(self, text):
         """读一句，成功受理返回 ``True``"""
+        return False
+
+    def preload(self, text):
+        """预先把下一句合成好（只有离线神经引擎用得上）
+
+        系统引擎是「喂一句读一句」，不需要预合成，所以默认什么都不做。
+        """
         return False
 
     def pause(self):
@@ -1261,7 +1272,7 @@ class SpeechQueue(QObject):
             # 引擎不认「继续」就退回重读当前句
             self._speak_current()
             return True
-        self._watchdog.start(estimate_speech_ms(self._current_text, self._rate))
+        self._watchdog.start(self._timeout_ms(self._current_text))
         return True
 
     def pause(self):
@@ -1385,6 +1396,16 @@ class SpeechQueue(QObject):
             index = 0
         return max(0, min(len(self._spans) - 1, index))
 
+    def _timeout_ms(self, text):
+        """这句的兜底超时（按引擎的 ``timeout_factor`` 放宽）"""
+        factor = 1.0
+        if self._backend is not None:
+            try:
+                factor = max(1.0, float(self._backend.timeout_factor))
+            except (AttributeError, TypeError, ValueError):
+                factor = 1.0
+        return int(estimate_speech_ms(text, self._rate) * factor)
+
     def _cancel_utterance(self):
         """掐掉当前这句：停引擎、取消超时、清掉「等着读完」的标记"""
         self._watchdog.stop()
@@ -1415,7 +1436,24 @@ class SpeechQueue(QObject):
             self.failed.emit(message)
             return
 
-        self._watchdog.start(estimate_speech_ms(span.text, self._rate))
+        self._watchdog.start(self._timeout_ms(span.text))
+        self._preload_next()
+
+    def _preload_next(self):
+        """让引擎先把下一句合成好（神经引擎才有意义，系统引擎是空实现）
+
+        当前句还在播的时候算下一句，轮到它时直接出声，中间不会出现空档。
+        合成失败无所谓（顶多回到「先算再播」），不要打断朗读。
+        """
+        if self._backend is None or not self._spans:
+            return
+        nxt = self._index + 1
+        if nxt < 0 or nxt >= len(self._spans):
+            return
+        try:
+            self._backend.preload(self._spans[nxt].text)
+        except Exception as exc:  # noqa: BLE001 - 预合成失败不影响主流程
+            logger.log(f"预合成下一句失败: {exc}", "DEBUG")
 
     def _on_backend_finished(self):
         """引擎读完一句"""
@@ -1443,7 +1481,7 @@ class SpeechQueue(QObject):
         if not self._awaiting:
             return
         span = self.current_span()
-        logger.log(f"朗读超时（{estimate_speech_ms(self._current_text, self._rate)}ms "
+        logger.log(f"朗读超时（{self._timeout_ms(self._current_text)}ms "
                    f"未收到完成回调），跳过: {self._current_text[:20]}", "WARN")
         self._awaiting = False
         if span is None or self._index >= len(self._spans) - 1:
@@ -1469,15 +1507,53 @@ class SpeechQueue(QObject):
 
 # ---------------- 工厂 ----------------
 
+#: 离线神经音色引擎名（与 :class:`enm.managers.tts_neural.SherpaBackend` 一致）
+NEURAL_ENGINE = "sherpa"
+
+#: 在线音色引擎名（与 :class:`enm.managers.tts_edge.EdgeBackend` 一致）
+EDGE_ENGINE = "edge"
+
+
+def _has_neural():
+    """装没装 ``sherpa-onnx``（缺库 / 缺 DLL 都算没装）"""
+    try:
+        from .tts_neural import sherpa_available
+    except Exception as exc:  # noqa: BLE001 - 语音库缺失也得照常跑
+        logger.log(f"没装 sherpa-onnx，离线神经音色不可用: {exc}", "INFO")
+        return False
+    try:
+        return bool(sherpa_available())
+    except Exception as exc:  # noqa: BLE001
+        logger.log(f"检查离线神经音色失败: {exc}", "WARN")
+        return False
+
+
+def _has_edge():
+    """装没装 ``edge-tts``"""
+    try:
+        from .tts_edge import edge_available
+    except Exception as exc:  # noqa: BLE001 - 语音库缺失也得照常跑
+        logger.log(f"没装 edge-tts，在线音色不可用: {exc}", "INFO")
+        return False
+    try:
+        return bool(edge_available())
+    except Exception as exc:  # noqa: BLE001
+        logger.log(f"检查在线音色失败: {exc}", "WARN")
+        return False
+
 
 def available_engines():
-    """系统里可用的朗读引擎名，**第一项是本程序会优先用的那个**
+    """本机可用的朗读引擎名，**第一项是本程序会优先用的那个**
 
-    ``sapi-com``（pywin32 直接驱动 SAPI，能看到 OneCore 语音）优先于
-    ``sapi``（``QTextToSpeech``，只能看到经典语音库）；前者装不了就自动降级。
-    取不到时返回空列表。
+    顺序是「离线神经 → 系统 SAPI → 在线」，优先能离线出声的：神经音色
+    （Piper / Kokoro）最好听且不联网；它没装 / 没下模型就退回系统引擎；
+    在线音色（edge-tts）要联网，只在用户主动选它的时候才用，所以排最后。
+    ``sapi-com``（pywin32 直接驱动 SAPI，能看到 OneCore 语音）优于
+    ``sapi``（``QTextToSpeech``，只能看到经典语音库）。取不到时返回空列表。
     """
     names = []
+    if _has_neural():
+        names.append(NEURAL_ENGINE)
     if sapi_com_available():
         names.append(SapiComBackend.name)
     try:
@@ -1491,6 +1567,8 @@ def available_engines():
     for name in qt_engines:
         if name not in names:
             names.append(name)
+    if _has_edge():
+        names.append(EDGE_ENGINE)
     return names
 
 
@@ -1499,7 +1577,52 @@ def _create_sapi_com():
     return backend if backend.available() else None
 
 
+def _create_neural(require_voices=True):
+    """建离线神经后端；``require_voices`` 为真时「一个音色都没有」算建不出来
+
+    自动挑引擎时要求有音色（不然会挑中一个没声音的引擎，用户点朗读只能
+    听到一句「模型还没下载」）；用户**明确**点了「离线神经音色」时不拦 ——
+    否则没下模型的人连「音色管理」的入口都进不去，模型永远下不了。
+    """
+    try:
+        from .tts_neural import SherpaBackend
+    except Exception as exc:  # noqa: BLE001 - 缺 sherpa-onnx 就退回系统引擎
+        logger.log(f"离线神经音色不可用: {exc}", "WARN")
+        return None
+    backend = SherpaBackend()
+    if not backend.available():
+        backend.shutdown()
+        return None
+    if require_voices and not backend.voices():
+        logger.log("离线神经音色还没下载模型，自动选择时跳过它", "INFO")
+        backend.shutdown()
+        return None
+    return backend
+
+
+def _create_edge():
+    try:
+        from .tts_edge import EdgeBackend
+    except Exception as exc:  # noqa: BLE001 - 缺 edge-tts 就退回系统引擎
+        logger.log(f"在线音色不可用: {exc}", "WARN")
+        return None
+    backend = EdgeBackend()
+    return backend if backend.available() else None
+
+
 def _create_qt_sapi(engine_name):
+    # 名字校验：``QTextToSpeech("没这个引擎")`` 会**悄悄用默认引擎**建成功，
+    # 于是「用户点了 A 却听到 B」——所以先对一遍本机引擎名单。
+    if engine_name:
+        try:
+            from PyQt5.QtTextToSpeech import QTextToSpeech
+            known = list(QTextToSpeech.availableEngines())
+        except Exception as exc:  # noqa: BLE001
+            logger.log(f"枚举朗读引擎失败: {exc}", "WARN")
+            known = []
+        if known and engine_name not in known:
+            logger.log(f"本机没有朗读引擎 {engine_name}", "WARN")
+            return None
     backend = QtSapiBackend(engine_name)
     return backend if backend.available() else None
 
@@ -1516,18 +1639,30 @@ def create_backend(engine=None):
     if engine:
         if engine == SapiComBackend.name:
             return _create_sapi_com()
+        if engine == NEURAL_ENGINE:
+            # 用户明确点名的引擎不要求「已经有音色」：空着也让他进去下模型
+            return _create_neural(require_voices=False)
+        if engine == EDGE_ENGINE:
+            return _create_edge()
         return _create_qt_sapi(engine)
 
     for name in available_engines():
-        backend = (_create_sapi_com() if name == SapiComBackend.name
-                   else _create_qt_sapi(name))
+        if name == SapiComBackend.name:
+            backend = _create_sapi_com()
+        elif name == NEURAL_ENGINE:
+            backend = _create_neural()
+        elif name == EDGE_ENGINE:
+            backend = _create_edge()
+        else:
+            backend = _create_qt_sapi(name)
         if backend is not None:
             return backend
     logger.log("系统没有可用的朗读引擎，朗读功能不可用", "WARN")
     return None
 
 
-__all__ = ["DEFAULT_MAX_CHARS", "GENDER_KEYS", "SentenceSpan",
+__all__ = ["DEFAULT_MAX_CHARS", "EDGE_ENGINE", "GENDER_KEYS",
+           "NEURAL_ENGINE", "SentenceSpan",
            "SapiComBackend", "SpeechQueue", "TtsBackend", "QtSapiBackend",
            "VoiceInfo", "available_engines", "clean_speech_text",
            "create_backend", "estimate_speech_ms", "is_speakable",

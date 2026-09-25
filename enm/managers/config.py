@@ -50,9 +50,14 @@ class ConfigManager:
             # * tts_auto_scroll —— 跟着高亮自动滚动（关掉只高亮不滚屏）
             # * tts_split_max_chars —— 单句最长字数，超长句子会在标点处再切一刀
             # * tts_bar_collapsed —— 朗读条收起（只留状态文字那一行）
+            # v1.3.8 追加：
+            # * tts_engine —— 用户指定的朗读引擎（空 = 程序自动挑，见
+            #   tts.available_engines()；'sherpa' 离线神经 / 'edge' 在线
+            #   / 'sapi-com' 和 'sapi' 系统语音）
             "tts_rate": 0.0,
             "tts_volume": 1.0,
             "tts_voice_name": "",
+            "tts_engine": "",
             "tts_auto_next_chapter": True,
             "tts_highlight": True,
             "tts_auto_scroll": True,

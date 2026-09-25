@@ -555,6 +555,25 @@ sys.exit(0 if ok else 1)
     return $missing
 }
 
+function Test-OptionalModule {
+    <# 可选依赖在解释器里有没有（有就把它带进包，没有就走开） #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Exe,
+        [Parameter(Mandatory = $true)][string]$Module
+    )
+
+    $probe = @'
+import importlib.util, sys
+try:
+    ok = importlib.util.find_spec(sys.argv[1]) is not None
+except Exception:
+    ok = False
+sys.exit(0 if ok else 1)
+'@
+
+    return (Invoke-Quiet -Exe $Exe -Arguments @('-c', $probe, $Module)).ExitCode -eq 0
+}
+
 function Resolve-BuildInterpreter {
     <#
         选择真正用于打包的解释器：
@@ -820,6 +839,27 @@ $nuitkaArgs += @(
     '--remove-output'
     $MainFileName
 )
+
+# 朗读的两套可选引擎（打包解释器里装了才带进包，没装就静默跳过）：
+#   * sherpa-onnx 的 Python 层顺着导入链能收到，但 ctypes 加载的
+#     sherpa-onnx-c-api.dll / onnxruntime.dll 不在依赖图里，必须显式带包数据；
+#   * 语音模型（Piper / Kokoro）**不进包**，首次使用时程序内下载到
+#     %APPDATA%\NovelMaster\tts_models\，所以安装包不会变大。
+if (Test-OptionalModule -Exe $buildPython -Module 'sherpa_onnx') {
+    $nuitkaArgs += @('--include-package=sherpa_onnx', '--include-package-data=sherpa_onnx')
+    Write-Ok '朗读离线神经音色: 已包含 sherpa-onnx'
+}
+else {
+    Write-Info '朗读离线神经音色: 未安装 sherpa-onnx，本次不带（不影响系统语音朗读）'
+}
+
+if (Test-OptionalModule -Exe $buildPython -Module 'edge_tts') {
+    $nuitkaArgs += @('--include-package=edge_tts')
+    Write-Ok '朗读在线音色: 已包含 edge-tts'
+}
+else {
+    Write-Info '朗读在线音色: 未安装 edge-tts，本次不带（不影响系统语音朗读）'
+}
 
 Write-Host '========================================' -ForegroundColor DarkGray
 Write-Host '构建配置:'

@@ -25,9 +25,10 @@ from ..managers import (ConfigManager, DEFAULT_PARAGRAPH_SPACING,
 from ..managers.book_identity import (FINGERPRINT_SAMPLE, build_identity,
                                       chapter_index_in,
                                       normalise_chapter_title)
-from ..managers.tts import (DEFAULT_MAX_CHARS, SpeechQueue, available_engines,
-                            create_backend, pick_voice, sentences_for_blocks,
-                            order_voices, voice_label)
+from ..managers import tts_models
+from ..managers.tts import (DEFAULT_MAX_CHARS, EDGE_ENGINE, NEURAL_ENGINE,
+                            SpeechQueue, available_engines, create_backend,
+                            pick_voice, sentences_for_blocks, voice_label)
 from ..readers import (SUPPORTED_EXTENSIONS, FolderReader, ReaderError,
                        build_open_file_filter, create_reader,
                        format_chapter_html, supported_extensions_text)
@@ -51,7 +52,9 @@ from .titlebar import (apply_dark_mode, apply_titlebar_theme, available,
 from .tts_bar import (RATE_PRESETS, TIMER_CHAPTER, TIMER_DEFAULT_MINUTES,
                       TIMER_MAX_MINUTES, TIMER_MIN_MINUTES, TIMER_OFF, TtsBar,
                       nearest_rate, quantize_volume)
+from .tts_model_dialog import TtsModelDialog
 from .tts_range_dialog import SpeechRangeDialog
+from .tts_voice_dialog import TtsVoiceDialog, VoiceSnapshot
 from .typography_dialog import TypographySettingsDialog
 from ..logger import logger
 
@@ -186,6 +189,14 @@ class NovelMaster(QMainWindow):
         self._tts_continues = False
         # 朗读进行中用户换了语音：先记下来，等停下来再换
         self._tts_voice_pending = ""
+        # 音色管理窗口与它的下载线程（懒创建，见 tts_model_dialog()）
+        self._tts_model_dialog = None
+        self._tts_model_lang = ""
+        # 音色选择窗口（懒创建；音色太多，菜单里铺不下，见 tts_voice_dialog()）
+        self._tts_voice_dialog = None
+        self._tts_voice_lang = ""
+        # 用户选了一个「还没下载」的音色：下完自动换上
+        self._tts_voice_after_download = ""
 
         # 朗读定时停止（v1.3.7）：倒计时只在「朗读中」走，暂停就冻住，
         # 这样「暂停去倒杯水、回来接着听」不会把剩余时间白耗掉。
@@ -526,9 +537,16 @@ class NovelMaster(QMainWindow):
 
         speech_menu.addSeparator()
 
-        # 语音列表要枚举系统语音（会加载引擎），所以打开菜单时才填
-        self.speech_voice_menu = self.add_menu(speech_menu, "menu.tts_voice")
-        self.speech_voice_menu.aboutToShow.connect(self.update_speech_voice_menu)
+        # 引擎列表要枚举系统语音（会加载引擎），所以打开菜单时才填
+        self.speech_engine_menu = self.add_menu(speech_menu, "menu.tts_engine")
+        self.speech_engine_menu.aboutToShow.connect(self.update_speech_engine_menu)
+
+        # 音色不再铺在菜单里：在线音色 322 个、离线神经 106 个，一拉开就占满
+        # 整个屏幕，翻起来还容易点错。改成打开一个独立窗口挑（见
+        # enm/ui/tts_voice_dialog.py）
+        self.speech_voice_action = self.make_action(
+            "menu.tts_voice", self.open_tts_voice_dialog)
+        speech_menu.addAction(self.speech_voice_action)
 
         self.speech_auto_next_action = self.make_action(
             "menu.tts_auto_next", self.toggle_speech_auto_next)
@@ -2551,11 +2569,24 @@ class NovelMaster(QMainWindow):
         if not self.speech_available():
             return None
 
-        backend = create_backend()
+        engine = self.speech_engine()
+        backend = create_backend(engine or None)
+        if backend is None and engine:
+            # 用户上次指定的引擎没了（卸了 sherpa-onnx / 模型删光了 / 换了台机器）
+            # → 改回「自动挑一个」，别把整个朗读功能锁死
+            self.logger.log(f"朗读引擎 {engine} 现在用不了，改回自动选择", "WARN")
+            engine = ""
+            self.config_manager.set("tts_engine", "")
+            backend = create_backend()
         if backend is None:
             self._tts_available = False
             self.update_speech_controls()
             return None
+
+        changed = getattr(backend, "voices_changed", None)
+        if changed is not None:
+            # 在线音色清单是异步拉的；拉回来了就同步到开着的音色窗口
+            changed.connect(self.refresh_voice_dialog)
 
         queue = SpeechQueue(backend, self)
         queue.sentence_changed.connect(self.on_speech_sentence_changed)
@@ -2572,6 +2603,10 @@ class NovelMaster(QMainWindow):
         return queue
 
     # ---- 配置 ----
+
+    def speech_engine(self):
+        """用户指定的朗读引擎名（空串 = 程序自己挑，见 ``available_engines``）"""
+        return str(self.config_manager.get("tts_engine", "") or "")
 
     def speech_rate(self):
         """配置里的朗读语速（-1.0 ~ 1.0，取最接近的档位值）"""
@@ -2641,12 +2676,13 @@ class NovelMaster(QMainWindow):
             if action is not None:
                 action.setEnabled(enabled)
         for action in (getattr(self, "speech_auto_next_action", None),
-                       getattr(self, "speech_highlight_action", None)):
+                       getattr(self, "speech_highlight_action", None),
+                       getattr(self, "speech_voice_action", None)):
             if action is not None:
                 action.setEnabled(enabled)
-        voice_menu = getattr(self, "speech_voice_menu", None)
-        if voice_menu is not None:
-            voice_menu.setEnabled(enabled)
+        engine_menu = getattr(self, "speech_engine_menu", None)
+        if engine_menu is not None:
+            engine_menu.setEnabled(enabled)
         return enabled
 
     # ---- 语音 ----
@@ -2678,38 +2714,251 @@ class NovelMaster(QMainWindow):
         backend = self._tts_backend
         if backend is None:
             return
+        if not self._ensure_voice_model(voice_id):
+            return
         if self.speech_active():
             self._tts_voice_pending = voice_id
             return
         backend.set_voice(voice_id)
 
-    def update_speech_voice_menu(self):
-        """重建「朗读语音」子菜单（打开菜单时才枚举，避免启动就加载引擎）"""
-        menu = getattr(self, "speech_voice_menu", None)
+    def _ensure_voice_model(self, voice_id):
+        """离线音色的模型没下载时问一句「现在下吗？」
+
+        返回 ``False`` 表示先别换音色（模型还没到位）。下完之后
+        :meth:`_on_tts_models_changed` 会把用户点的这个音色自动换上。
+        """
+        backend = self._tts_backend
+        if (not voice_id or backend is None
+                or backend.name != NEURAL_ENGINE or "|" not in voice_id):
+            return True
+        model_id = voice_id.rpartition("|")[0]
+        if tts_models.is_installed(model_id):
+            return True
+        self._tts_voice_after_download = voice_id
+        self.tts_model_dialog().prompt_download(model_id, self)
+        return False
+
+    # ---- 语音菜单 ----
+
+    @staticmethod
+    def engine_label(engine):
+        """引擎在界面上的名字（没翻译就退回引擎标识，总比空着强）"""
+        return i18n.t(f"tts.engine.{engine}", default=engine)
+
+    def switch_speech_engine(self, engine):
+        """换朗读引擎：停朗读 → 丢旧引擎 → 按新引擎重建队列"""
+        if engine == self.speech_engine() and self._tts_backend is not None \
+                and self._tts_backend.name == engine:
+            return
+        was_active = self.speech_active()
+        self.stop_speech()
+        self.shutdown_speech()          # 顺便把旧引擎的线程 / 临时文件收掉
+        self.config_manager.set("tts_engine", engine)
+        self._tts_voice_pending = ""
+        queue = self.speech_queue()
+        if queue is None:
+            self.logger.log(f"切到朗读引擎 {engine} 失败", "WARN")
+            self.config_manager.set("tts_engine", "")
+            queue = self.speech_queue()
+        if queue is not None:
+            backend = self._tts_backend
+            self.logger.log(f"朗读引擎已切换到 {backend.name}"
+                            f"（{len(backend.voices())} 个音色）")
+            if backend.name == EDGE_ENGINE and not backend.voices_ready():
+                backend.refresh_async()     # 在线音色第一次用要拉清单
+        self.update_speech_controls()
+        if was_active:
+            self.logger.log(i18n.t("tts.engine.switched",
+                                   default="换了朗读引擎，朗读已停止"))
+
+    def update_speech_engine_menu(self):
+        """重建「朗读引擎」子菜单（打开菜单时才枚举，避免启动就加载引擎）"""
+        menu = getattr(self, "speech_engine_menu", None)
         if menu is None:
             return
         menu.clear()
         if not self.speech_available():
+            menu.menuAction().setVisible(False)
             return
         if self._tts_backend is None:
-            # 用户点开了语音菜单，说明要用朗读，这时候建引擎是值得的
+            # 用户点开了引擎菜单，说明要用朗读，这时候建引擎是值得的
             self.speech_queue()
         backend = self._tts_backend
         if backend is None:
+            menu.menuAction().setVisible(False)
             return
-        current = backend.current_voice_id()
-        voices = order_voices(backend.voices(), i18n.current_language())
-        if not voices:
-            empty = menu.addAction(i18n.t("tts.voice.none"))
-            empty.setEnabled(False)
-            return
-        for voice in voices:
-            action = menu.addAction(voice_label(voice, show_gender=True))
+        visible = self._fill_engine_menu(menu, backend)
+        menu.menuAction().setVisible(visible)
+
+    def _fill_engine_menu(self, menu, backend):
+        """引擎单选组（系统 / 离线神经 / 在线）；返回有没有东西可显示"""
+        engines = available_engines()
+        if len(engines) < 2:
+            return False
+        for engine in engines:
+            action = menu.addAction(self.engine_label(engine))
             action.setCheckable(True)
-            action.setChecked(voice.voice_id == current)
+            action.setChecked(engine == backend.name)
             action.triggered.connect(
-                lambda _checked=False, voice_id=voice.voice_id:
-                self.select_speech_voice(voice_id))
+                lambda _checked=False, name=engine: self.switch_speech_engine(name))
+        return True
+
+    # ---- 音色选择窗口 ----
+
+    def speech_voice_snapshot(self):
+        """给「选择音色」窗口现取一份数据（引擎、可选引擎、音色表、当前音色）
+
+        窗口每次 ``refresh()`` 都会调这里，所以刚下完的模型、刚拉回来的
+        在线清单都能立刻看到。
+        """
+        if self._tts_backend is None and self.speech_available():
+            self.speech_queue()
+        backend = self._tts_backend
+        if backend is None:
+            return VoiceSnapshot()
+        engine = backend.name
+        ready = True
+        note = ""
+        if engine == EDGE_ENGINE:
+            ready = bool(backend.voices_ready())
+            if not ready:
+                note = i18n.t("tts.voice.loading")
+        elif engine == NEURAL_ENGINE and not backend.voices():
+            note = i18n.t("tts.voice.empty_neural")
+        return VoiceSnapshot(
+            engine=engine,
+            engine_label=self.engine_label(engine),
+            engines=tuple((name, self.engine_label(name))
+                          for name in available_engines()),
+            voices=tuple(backend.voices()),
+            current_id=backend.current_voice_id(),
+            ready=ready,
+            note=note)
+
+    def tts_voice_dialog(self):
+        """懒创建「选择音色」窗口（非模态；界面语言变了就重建）"""
+        lang = i18n.current_language()
+        if (self._tts_voice_dialog is not None
+                and getattr(self, "_tts_voice_lang", lang) != lang):
+            self._tts_voice_dialog.shutdown()
+            self._tts_voice_dialog = None
+        if self._tts_voice_dialog is None:
+            dialog = TtsVoiceDialog(
+                self,
+                ui_theme=self.theme_manager.get_theme(self.current_theme_name()),
+                titlebar_theme=self.dialog_titlebar_theme(),
+                snapshot=self.speech_voice_snapshot)
+            dialog.voice_selected.connect(self.select_speech_voice)
+            dialog.engine_selected.connect(self.on_voice_dialog_engine)
+            dialog.refresh_requested.connect(self.refresh_edge_voices)
+            dialog.manage_requested.connect(self.open_tts_model_dialog)
+            self._tts_voice_dialog = dialog
+            self._tts_voice_lang = lang
+        return self._tts_voice_dialog
+
+    def open_tts_voice_dialog(self):
+        """打开「选择音色」窗口（朗读菜单里的入口）"""
+        if not self.speech_available():
+            self.tts_bar.set_notice(i18n.t("menu.tts_unavailable"))
+            return
+        dialog = self.tts_voice_dialog()
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def refresh_voice_dialog(self):
+        """窗口开着的话同步一下列表（模型下载完、在线清单拉回来时用）"""
+        dialog = self._tts_voice_dialog
+        if dialog is not None and dialog.isVisible():
+            dialog.refresh()
+
+    def on_voice_dialog_engine(self, engine):
+        """用户在音色窗口里换了引擎：切完把列表刷成新引擎的音色"""
+        self.switch_speech_engine(engine)
+        self.refresh_voice_dialog()
+
+    # ---- 音色模型管理 ----
+
+    def tts_model_dialog(self):
+        """懒创建「音色管理」窗口（非模态，下载线程归主窗口所有）
+
+        窗口里的文案是构建时翻的，切了界面语言就把旧窗扔掉重建（下载中
+        不扔，免得把用户的下载打断）。
+        """
+        lang = i18n.current_language()
+        if (self._tts_model_dialog is not None
+                and getattr(self, "_tts_model_lang", lang) != lang
+                and not self._tts_model_dialog.worker().busy()):
+            self._tts_model_dialog.shutdown()
+            self._tts_model_dialog = None
+        if self._tts_model_dialog is None:
+            dialog = TtsModelDialog(
+                self,
+                ui_theme=self.theme_manager.get_theme(self.current_theme_name()),
+                titlebar_theme=self.dialog_titlebar_theme())
+            dialog.installed_changed.connect(self._on_tts_models_changed)
+            # 下载要几分钟，进度也丢一份到朗读条上（不必盯着那个窗口）
+            dialog.worker().progress.connect(self.on_tts_model_progress)
+            dialog.worker().finished.connect(self.on_tts_model_finished)
+            self._tts_model_dialog = dialog
+            self._tts_model_lang = lang
+        return self._tts_model_dialog
+
+    def on_tts_model_progress(self, model_id, phase, done, total):
+        """下载音色模型：把进度写到朗读条那一行"""
+        info = tts_models.model_info(model_id)
+        name = info.name if info is not None else model_id
+        if phase == "unpack":
+            text = i18n.t("tts.model.bar_unpack", default="正在解压「{name}」…",
+                          name=name)
+        else:
+            percent = int(done * 100 / total) if total else 0
+            text = i18n.t("tts.model.bar_progress",
+                          default="正在下载「{name}」{percent}%",
+                          name=name, percent=percent)
+        self.tts_bar.set_notice(text)
+
+    def on_tts_model_finished(self, model_id, ok, message):
+        """下载结束（成不成）都把朗读条那行恢复回去"""
+        self.tts_bar.set_notice("")
+        if not ok and message:
+            self.logger.log(f"音色模型下载未完成: {message}", "WARN")
+
+    def open_tts_model_dialog(self):
+        """打开「音色管理」（从朗读菜单进来）"""
+        dialog = self.tts_model_dialog()
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _on_tts_models_changed(self):
+        """装了 / 删了模型：让神经引擎重扫一遍音色，并把欠着的音色换上"""
+        backend = self._tts_backend
+        if backend is not None and backend.name == NEURAL_ENGINE:
+            try:
+                backend.refresh()
+            except Exception as e:
+                self.logger.log(f"刷新离线音色失败: {e}", "WARN")
+        voice_id, self._tts_voice_after_download = \
+            self._tts_voice_after_download, ""
+        if not voice_id:
+            return
+        if not tts_models.is_installed(voice_id.rpartition("|")[0]):
+            return
+        self.config_manager.set("tts_voice_name", voice_id)
+        if self._tts_backend is not None:
+            self._tts_backend.set_voice(voice_id)
+        self.logger.log(f"音色模型已就绪，切到 {voice_id}")
+        self.refresh_voice_dialog()
+
+    def refresh_edge_voices(self):
+        """手动刷新在线音色清单（音色窗口的「刷新在线音色」也走这里）"""
+        backend = self._tts_backend
+        if backend is None or backend.name != EDGE_ENGINE:
+            self.refresh_voice_dialog()
+            return
+        backend.refresh_async()
+        self.logger.log("正在获取在线音色清单…")
 
     # ---- 句子表 ----
 
@@ -3362,6 +3611,24 @@ class NovelMaster(QMainWindow):
 
         # 停掉朗读并释放系统语音引擎（不释放的话进程可能压在句子里退不掉）
         self.shutdown_speech()
+
+        # 音色管理窗口的下载线程也得收（正在下就让它断在半路，.part 留着）
+        dialog = self._tts_model_dialog
+        self._tts_model_dialog = None
+        if dialog is not None:
+            try:
+                dialog.shutdown()
+            except Exception as e:  # noqa: BLE001
+                self.logger.log(f"关闭音色管理窗口失败: {e}", "WARN")
+
+        # 音色选择窗口（它自己不占线程 / 文件，关掉就行）
+        voice_dialog = self._tts_voice_dialog
+        self._tts_voice_dialog = None
+        if voice_dialog is not None:
+            try:
+                voice_dialog.shutdown()
+            except Exception as e:  # noqa: BLE001
+                self.logger.log(f"关闭音色选择窗口失败: {e}", "WARN")
         
         # 释放阅读器（清理 ZIP/JAR/MOBI 等解压出来的临时文件）
         self.release_current_reader()

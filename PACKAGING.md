@@ -114,6 +114,9 @@
 确定解释器后脚本还会做一次**依赖自检**（PyQt5 / ebooklib / lxml / chardet / PIL / pypdf / docx），
 缺依赖会给出补齐命令（可用 `-SkipNuitkaCheck` 跳过）。
 
+> `sherpa-onnx` / `edge-tts` **不在自检名单里**：它们是可选依赖，
+> 有就多两套音色，没有照常用系统语音，不会拦下打包。
+
 > 若提示"解释器缺少运行依赖"，先执行 `.\install.ps1 -Python <该解释器路径>` 补齐依赖，
 > 否则打包出的程序可能无法运行。
 > 首次使用若提示"在此系统上禁止运行脚本"，先执行：
@@ -176,6 +179,9 @@ dist/
 - **PyQt5.QtTextToSpeech**: 朗读（TTS）功能，调用系统自带语音引擎（Windows 为 SAPI5），
   无需额外第三方包；同时必须带上 Qt 的 `texttospeech` 插件（见下）
 - **pywin32**（可选）: 朗读的**增强**依赖，装了才会启用 `sapi-com` 后端（见下）
+- **sherpa-onnx**（可选）: 朗读的**离线神经音色**依赖（Apache-2.0，轮子自带 onnxruntime），
+  Piper / Kokoro 音色靠它合成；**语音模型不进包**，首次使用时程序内下载（见下）
+- **edge-tts**（可选）: 朗读的**在线音色**依赖（MIT），提供微软 300+ 在线音色，需联网
 - **ebooklib**: EPUB文件处理
 - **lxml**: XML/HTML解析
 - **chardet**: 编码检测
@@ -251,6 +257,51 @@ v1.3.7 起，朗读还能走 `sapi-com` 后端：用 `win32com.client` 驱动 `S
 >
 > 另外，程序**判断** `sapi-com` 能不能用时只用 `find_spec` + 读注册表（约 1 ms），
 > 不会在启动路径上加载 `win32com`（那要 ~100 ms），所以带着 `pywin32` 启动并不变慢。
+
+### 可选增强：离线神经音色与在线音色（sherpa-onnx / edge-tts）
+
+v1.3.8 起朗读多两套引擎，都是**可选依赖**：缺任何一个都不影响启动与系统语音朗读。
+
+- **离线神经音色**（引擎名 `sherpa`）：`sherpa-onnx` + Piper / Kokoro 模型，
+  不联网、免费、音质远好于系统语音；两套引擎里它优先（能离线出声）
+- **在线音色**（引擎名 `edge`）：`edge-tts`，微软 Azure 的 300+ 音色，音质最好但需联网；
+  音频只能拿到 MP3，因此用 `QtMultimedia` 播放（需要 `PyQt5.QtMultimedia`，已随 PyQt5 带上）
+
+在打包用的解释器里装上：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install sherpa-onnx edge-tts
+```
+
+**`sherpa-onnx` 的原生 DLL 必须显式带进包**（Python 层靠导入链能自动收到，
+但 `LoadLibrary` 加载的两支 DLL 不在依赖图里）：
+
+```text
+--include-package=sherpa_onnx
+--include-package-data=sherpa_onnx
+```
+
+两个打包脚本都会**先探测打包解释器里有没有这些库**，装了才把上面的参数加上，
+没装就跳过（可选依赖缺失不会让打包失败）；`edge-tts` 同理带 `--include-package=edge_tts`。
+所以想打带神经音色的发布版，只要在打包用的解释器里 `pip install sherpa-onnx edge-tts`
+再直接跑脚本即可，**不用改脚本**。
+
+这样 `sherpa_onnx/lib/sherpa-onnx-c-api.dll` 与 `onnxruntime.dll`（共 ~21 MB）才会进包。
+本机实测：`sherpa-onnx 1.13.8` + `sherpa-onnx-core 1.13.8`（16.1 MB，**py3-none 轮子，
+任意 Python 版本通用**），**自带 onnxruntime，不用单独装**。
+
+`edge-tts` 是纯 Python，`--include-module=edge_tts` 就够；它还依赖
+`aiohttp` / `certifi` / `tabulate` / `typing-extensions`（Nuitka 顺导入链会收）。
+
+> **模型不进安装包。** Piper 小模型 13 MB、Kokoro 140 MB 都是首次使用时
+> 在「朗读 → 音色管理…」里下载的（带进度、支持续传与镜像），解压到
+> `%APPDATA%\NovelMaster\tts_models\<模型 id>\`，随时可删。
+> 因此：带神经音色的发布版，安装包基本不变大；不联网的用户看不到任何“缺文件”。
+> pip 轮子里**不带** `espeak-ng-data`，所以中文 Piper 模型靠模型自带的 `lexicon` 注音，
+> 不需要额外分发音素库。
+
+验证：跑发布版 →「朗读」→「朗读语音」，顶部「朗读引擎」里应能看到
+「离线神经音色」与「在线音色」；点「音色管理…」应能列出 4 个模型（含体积与状态）。
 
 ### 排除的模块
 
@@ -330,6 +381,25 @@ pip install -i https://mirrors.aliyun.com/pypi/simple/ --upgrade nuitka
 
 - **打包环境里没装 `pywin32`**：加上再重打包（见上文“可选增强：`sapi-com` 后端”）；
 - **装了但 Nuitka 没收到**：按那里的说明补 `--include-module` 参数。
+
+### 7. 打包后没有「离线神经音色」/「在线音色」
+
+- 打包解释器里没装 `sherpa-onnx` / `edge-tts`，或装了但**原生 DLL 没进包**
+  （表现为菜单里没这两项，或选了之后就提示音色不可用）；
+- 补上 `--include-package=sherpa-onnx` 与 `--include-package-data=sherpa-onnx`
+  （两个打包脚本在检测到该库时会自动加上），再确认 `sherpa_onnx/lib/` 下有
+  `sherpa-onnx-c-api.dll`、`onnxruntime.dll`；
+- 对照开发环境：`python -c "from enm.managers.tts import available_engines; print(available_engines())"`
+  （开发环境应能出现 `sherpa` 与 `edge`）。
+
+### 8. 选了神经音色，提示「这个音色的模型还没下载」
+
+这是**正常**行为：模型按需下载，不进安装包。
+
+- 请到「朗读 →「朗读语音」→「音色管理…」」里下载（Piper 小模型 13 MB，Kokoro 140 MB）；
+- 下载中关掉窗口不会中断（下载继续，进度也同步在朗读条上）；
+- 想清空间就直接删 `%APPDATA%\NovelMaster\tts_models`（或在音色管理里点「删除」）；
+- 断网 / 公司网络拦 GitHub 时会给镜像重试的提示，失败可重试。
 
 这两种情况都只是“音色少一些”，不影响朗读本身；开发环境下
 `python -c "from enm.managers.tts import available_engines; print(available_engines())"`

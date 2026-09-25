@@ -47,3 +47,24 @@ pypdf>=6.0.0
 #     PyQt5.QtTextToSpeech，朗读功能一样齐全，只是可选音色少一些。
 #     官方发行版已随包附带，源码运行想体验更多音色时再装：
 #     pip install pywin32
+#
+# sherpa-onnx>=1.13.8
+#     朗读的「离线神经音色」依赖（Apache-2.0）。装上后可以用
+#     Piper（超文 / 小雅 / 花颜）与 Kokoro（103 个音色，中英日等多语言）
+#     这些神经网络音色，不联网、免费、音质比系统语音好很多。
+#     注意：语音模型**不在**依赖里，第一次使用时在程序内
+#     「朗读 → 音色管理…」里按需下载（Piper 小模型 13 MB，Kokoro 140 MB），
+#     下完之后存在 %APPDATA%\NovelMaster\tts_models\ 下，可随时删除。
+#     未安装时朗读自动回落系统语音，其余功能不受影响。
+#     官方发行版已随包附带，源码运行想体验神经音色时再装：
+#     pip install sherpa-onnx
+#
+# edge-tts>=7.2.8
+#     朗读的「在线音色」依赖（MIT）。装上后可以挑选微软 Azure 的
+#     300 多个在线音色（中文 6 个，如 Xiaoxiao / Yunxi / Xiaoyi）。
+#     音质是三者里最好的，但需要联网，且音频是 MP3（用 QtMultimedia 播放）。
+#     未安装时朗读自动回落系统语音；装了但断网时会明确提示合成失败。
+#     pip install edge-tts
+#
+#     想省事就一次装齐：
+#     pip install sherpa-onnx edge-tts
