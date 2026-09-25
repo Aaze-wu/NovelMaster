@@ -1502,6 +1502,8 @@ class NovelMaster(QMainWindow):
                 self.update_progress()
                 # 正文没了：同步一次，别让朗读继续读上一本书
                 self.sync_speech_content()
+                # 换到空文件时标题也得跟着走，别停在上一篇
+                self.update_window_title()
                 return
             # 修正越界的章节索引
             if not (0 <= inner.current_chapter < inner.get_chapter_count()):
@@ -1518,6 +1520,7 @@ class NovelMaster(QMainWindow):
                 self.apply_reader_typography()
                 self.update_progress()
                 self.sync_speech_content()
+                self.update_window_title()
                 return
             if not (0 <= reader.current_chapter < reader.get_chapter_count()):
                 reader.current_chapter = 0
@@ -1541,8 +1544,11 @@ class NovelMaster(QMainWindow):
         self.update_progress()
         # 正文换了：重排朗读句子表（正在朗读时接着读，见 sync_speech_content）
         self.sync_speech_content()
-        # 系统媒体面板上的章节名也跟着走
-        self.refresh_media_panel()
+        # 书名 / 章节名跟着走，窗口标题栏与系统媒体面板都要刷。
+        # 文件夹模式下这一步不能省：翻章可能翻到**另一个文件**，
+        # get_book_info() 返回的是当前文件的名字，标题不刷就会停在上一次打开的那篇。
+        # （update_window_title 内部已经调了 refresh_media_panel）
+        self.update_window_title()
 
     # ---------------- 内嵌图片展示 ----------------
 
