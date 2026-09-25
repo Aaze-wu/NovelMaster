@@ -1734,7 +1734,8 @@ class NovelMaster(QMainWindow):
             else:
                 # 回退到上一个文件
                 moved = False
-                index = self.current_reader.current_file_index
+                start_index = self.current_reader.current_file_index
+                index = start_index
                 while index > 0:
                     index -= 1
                     self.current_reader.current_file_index = index
@@ -1744,6 +1745,8 @@ class NovelMaster(QMainWindow):
                         moved = True
                         break
                 if not moved:
+                    # 前面的文件全是空的/打不开的：索引退回原处
+                    self.current_reader.current_file_index = start_index
                     if DEBUG_MODE:
                         self.logger.debug("已经是第一篇，无法切换到上一章")
                     return
@@ -1776,7 +1779,8 @@ class NovelMaster(QMainWindow):
             else:
                 # 前进到下一个文件
                 moved = False
-                index = self.current_reader.current_file_index
+                start_index = self.current_reader.current_file_index
+                index = start_index
                 while index < len(self.current_reader.files) - 1:
                     index += 1
                     self.current_reader.current_file_index = index
@@ -1786,6 +1790,8 @@ class NovelMaster(QMainWindow):
                         moved = True
                         break
                 if not moved:
+                    # 后面的文件全是空的/打不开的：索引退回原处，免得界面和状态对不上
+                    self.current_reader.current_file_index = start_index
                     if DEBUG_MODE:
                         self.logger.debug("已经是最后一篇，无法切换到下一章")
                     return
@@ -3776,14 +3782,21 @@ class NovelMaster(QMainWindow):
         self.apply_speech_highlight(self._tts_highlight_index)
 
     def has_next_chapter(self):
-        """后面还有章节吗（文件夹模式下取当前内层文件）"""
+        """后面还有章节吗（文件夹模式下可跨文件，与 ``next_chapter`` 判定一致）"""
         reader = self.current_reader
         if reader is None:
             return False
         if isinstance(reader, FolderReader):
-            reader = reader.get_current_reader()
-        if reader is None:
-            return False
+            inner = reader.get_current_reader()
+            if inner is not None:
+                try:
+                    if inner.current_chapter < inner.get_chapter_count() - 1:
+                        return True
+                except Exception:
+                    pass
+            # 当前文件读到头了：后面还有文件就算还有下一章
+            # （文件可能是空的 / 打不开的，交给 next_chapter 自己往后跳）
+            return reader.current_file_index < len(reader.files) - 1
         try:
             return reader.current_chapter < reader.get_chapter_count() - 1
         except Exception:

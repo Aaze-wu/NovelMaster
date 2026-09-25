@@ -31,7 +31,12 @@ class TrayIcon:
     def __init__(self, window):
         self._window = window
         self._tray = QSystemTrayIcon(window.windowIcon())
-        self._menu = QMenu()
+        # ⚠️ 必须带上 parent：样式表是设在主窗口上的（app 上只设了调色板），
+        # 而 QSS 沿父子链继承。不挂 parent 的话这个菜单不在主窗口子树里，
+        # 只剩调色板兜底 —— 浅色主题下看不出来，深色 / 自定义主题下底色、
+        # 行高、边框、选中色全跟应用内其它菜单对不上（实测 247px vs 216px、
+        # 底色 #2e2e2e vs 主题的 #2b2b2b）。
+        self._menu = QMenu(window)
 
         # 显示 / 隐藏主窗口（文案随窗口可见性变，用可调用键交给 bind_text）
         self._toggle_action = window.make_action(self._toggle_key,
