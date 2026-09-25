@@ -12,11 +12,13 @@ from .theme_qss import (SPLITTER_HANDLE_WIDTH, build_palette,
 from .titlebar import (apply_dark_mode, apply_titlebar_theme, available,
                        hide_border, reset_titlebar_theme,
                        supports_caption_color)
+from .typography_dialog import TypographySettingsDialog
 
 __all__ = ["BookMergeDialog", "ChapterTree", "ContinueReadingDialog",
            "NovelMaster",
            "ShortcutSettingsDialog", "ThemeEditorDialog", "ThemePreviewWidget",
-           "ThemeManagerDialog", "build_style_sheet", "build_palette",
-           "color_on_accent", "SPLITTER_HANDLE_WIDTH", "apply_titlebar_theme",
+           "ThemeManagerDialog", "TypographySettingsDialog",
+           "build_style_sheet", "build_palette", "color_on_accent",
+           "SPLITTER_HANDLE_WIDTH", "apply_titlebar_theme",
            "apply_dark_mode", "reset_titlebar_theme",
            "supports_caption_color", "hide_border", "available"]

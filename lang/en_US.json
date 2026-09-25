@@ -61,6 +61,7 @@
     "theme_custom_empty": "(no custom themes yet)",
     "theme_manager": "Manage Themes...",
     "font_settings": "Font Settings",
+    "typography_settings": "Typography Settings",
     "font_increase": "Increase Font Size",
     "font_decrease": "Decrease Font Size",
     "restore_scroll": "Remember Scroll Position",
@@ -95,7 +96,8 @@
     "goto_chapter": "Go to Chapter",
     "goto_chapter_prompt": "Enter a chapter number (1 - {total}):",
     "continue_reading": "Continue Reading - {app}",
-    "shortcut_settings": "Keyboard Shortcuts"
+    "shortcut_settings": "Keyboard Shortcuts",
+    "typography_settings": "Typography Settings"
   },
   "filter": {
     "supported": "Supported Files",
@@ -117,6 +119,12 @@
     "no_displayable_content_folder": "Cannot read this file, or it has no displayable content.",
     "tts_unavailable": "No speech engine is available on this computer, so reading aloud cannot be used.",
     "tts_empty": "This chapter has no text to read aloud (it may contain images only)."
+  },
+  "typography": {
+    "hint": "Line spacing and paragraph spacing apply to the reading area. Paragraph spacing is the blank space between two paragraphs in pixels; Qt's own default is about 24, so 24 means the original look.",
+    "line_spacing_label": "Line spacing (multiple):",
+    "paragraph_spacing_label": "Paragraph spacing:",
+    "locked": "{fields} currently come from the active theme (\"Typography follows theme\" is on and the theme provides them). Turn that switch off to adjust them here."
   },
   "tts": {
     "play": "Read Aloud",
@@ -263,6 +271,10 @@
         "label": "Font Settings",
         "hint": "Open the font selection dialog"
       },
+      "view_typography_dialog": {
+        "label": "Typography Settings",
+        "hint": "Open the line / paragraph spacing dialog"
+      },
       "view_theme_light": {
         "label": "Light Theme",
         "hint": "Switch to the light theme"
@@ -404,11 +416,12 @@
     "reader_label": "Reading background:",
     "auto_placeholder": "blank = auto",
     "auto_tooltip": "Leave blank to derive a suitable value from the required colors",
-    "typography_follow": "This theme also sets font / size / line spacing",
-    "typography_hint": "Unchecked saves colors only and the reading area keeps the global font settings; checked still requires \"Typography follows theme\" to take effect.",
+    "typography_follow": "This theme also sets font / size / line spacing / paragraph spacing",
+    "typography_hint": "Unchecked saves colors only and the reading area keeps the global typography from \"Settings → Font Settings / Typography Settings\"; checked still requires \"Typography follows theme\" to take effect.",
     "font_family_label": "Font:",
-    "font_size_label": "Size:",
-    "line_spacing_label": "Line spacing:",
+    "font_size_label": "Font size:",
+    "line_spacing_label": "Line spacing (multiple):",
+    "paragraph_spacing_label": "Paragraph spacing:",
     "choose_color": "Choose {field}",
     "choose_color_tooltip": "Click to open the color picker",
     "live_hint": "Tip: you can type #RRGGBB directly; fields marked \"blank = auto\" fall back to a derived value. The preview on the right uses the same stylesheet as the main window, so what you see is what you get.",
@@ -428,6 +441,7 @@
     "invalid_font_family": "Invalid font family: {value}",
     "invalid_font_size": "Font size must be between {min} and {max}, got: {value}",
     "invalid_line_spacing": "Line spacing must be between {min} and {max}, got: {value}",
+    "invalid_paragraph_spacing": "Paragraph spacing must be between {min} and {max} pixels, got: {value}",
     "unknown_fields": "Ignored unrecognized field(s): {fields}",
     "empty_name": "The theme name cannot be empty.",
     "reserved_name": "\"{name}\" is the name of a built-in theme, please pick another one.",

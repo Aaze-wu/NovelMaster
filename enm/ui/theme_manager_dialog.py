@@ -9,8 +9,8 @@
 该应用哪套主题」，由主窗口统一处理。
 
 ``titlebar_theme`` 为空 = 不给原生标题栏上色（对应「标题栏跟随主题」关闭）；
-预览区会按主题自带的排版画字号 / 行距，没带的就用 ``font_family`` /
-``font_size`` / ``line_spacing`` 几个参数里的当前全局设置。
+预览区会按主题自带的排版画字号 / 行距 / 段间距，没带的就用 ``font_family`` /
+``font_size`` / ``line_spacing`` / ``paragraph_spacing`` 几个参数里的当前全局设置。
 """
 
 from pathlib import Path
@@ -39,7 +39,7 @@ class ThemeManagerDialog(QDialog):
 
     def __init__(self, manager, current_theme, parent=None, ui_theme=None,
                  titlebar_theme=None, font_family=None, font_size=None,
-                 line_spacing=None):
+                 line_spacing=None, paragraph_spacing=None):
         super().__init__(parent)
         self.manager = manager
         self.current_theme = current_theme
@@ -52,6 +52,7 @@ class ThemeManagerDialog(QDialog):
             "font_family": font_family,
             "font_size": font_size,
             "line_spacing": line_spacing,
+            "paragraph_spacing": paragraph_spacing,
         }
 
         if ui_theme:
@@ -210,13 +211,17 @@ class ThemeManagerDialog(QDialog):
         name, is_builtin = info
         self.selected_label.setText(theme_display_label(self.manager, name, is_builtin))
         theme = self.manager.get_theme(name)
-        # 主题自带排版时预览也按它的字号 / 行距画，否则看起来会比实际差一截
+        # 主题自带排版时预览也按它的字号 / 行距 / 段间距画，否则看起来会比实际差一截
+        paragraph = theme.get("paragraph_spacing")
         self.preview.set_theme(
             theme,
             font_size=(theme.get("font_size")
                        or self._typography_defaults.get("font_size")),
             line_spacing=(theme.get("line_spacing")
-                          or self._typography_defaults.get("line_spacing")))
+                          or self._typography_defaults.get("line_spacing")),
+            paragraph_spacing=(paragraph if paragraph is not None
+                               else self._typography_defaults.get(
+                                   "paragraph_spacing")))
         self.apply_btn.setEnabled(True)
         self.copy_btn.setEnabled(True)
         self.export_btn.setEnabled(True)

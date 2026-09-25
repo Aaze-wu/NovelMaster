@@ -19,7 +19,11 @@
 
 排版字段（可选，主题带不带都行）::
 
-    font_family / font_size / line_spacing
+    font_family / font_size / line_spacing / paragraph_spacing
+
+注意 ``line_spacing`` / ``paragraph_spacing`` 不能靠样式表生效（Qt 的
+``line-height`` 是无效属性），真正落地靠 :mod:`enm.ui.reader_typography`
+里的块格式，本模块只负责把值存对、校验住。
 
 本模块只管数据（校验、推导、读写 ``themes/*.json``、增删改查），颜色怎么用由
 :mod:`enm.ui.theme_qss` 决定。校验失败时返回的是「语言键 + 参数」，翻译交给
@@ -64,7 +68,7 @@ FIELD_GROUPS = (
 )
 
 #: 可选的排版字段
-TYPO_FIELDS = ("font_family", "font_size", "line_spacing")
+TYPO_FIELDS = ("font_family", "font_size", "line_spacing", "paragraph_spacing")
 
 #: 主题数据里除颜色 / 排版外的字段
 NAME_FIELD = "name"
@@ -93,6 +97,16 @@ FONT_SIZE_RANGE = (8, 48)
 
 #: 行距范围
 LINE_SPACING_RANGE = (1.0, 3.0)
+
+#: 段间距范围（像素）。Qt 给 ``<p>`` 的默认上下边距各 12px，
+#: 也就是相邻两段之间默认就是 24px，所以默认值取 24 = 不改动外观
+PARAGRAPH_SPACING_RANGE = (0, 80)
+
+#: 段间距默认值（与 :data:`enm.managers.config.default_config` 一致）
+DEFAULT_PARAGRAPH_SPACING = 24
+
+#: 行距默认值（与 :data:`enm.managers.config.default_config` 一致）
+DEFAULT_LINE_SPACING = 1.8
 
 #: 黑白文字的分界点：在这个相对亮度上黑字与白字的对比度相等
 #: （(L+0.05)/0.05 == 1.05/(L+0.05) ⇒ L ≈ 0.179）
@@ -368,7 +382,11 @@ def mix(color_a, color_b, ratio):
 
 
 def normalise_font_size(value):
-    """字号 → 整数（8~48）；不合法返回 ``None``"""
+    """字号 → 整数（8~48）；不合法返回 ``None``，需要区分「非法」与「没填」
+
+    注意这是「校验」而不是「带兜底的读取」：``None`` 一律表示值不合法，
+    调用方想给默认值自己用 ``or`` 接。段间距同理（见下）。
+    """
     if isinstance(value, bool):
         return None
     try:
@@ -393,6 +411,22 @@ def normalise_line_spacing(value):
     if not low <= number <= high:
         return None
     return round(number, 2)
+
+
+def normalise_paragraph_spacing(value):
+    """段间距 → 整数像素（0~80）；不合法返回 ``None``
+
+    ``0`` 是合法值（段落紧贴），所以调用方**不能**用 ``or`` 接默认值，
+    必须显式判断 ``is None``。
+    """
+    if isinstance(value, bool):
+        return None
+    try:
+        number = int(str(value).strip()) if isinstance(value, str) else int(value)
+    except (TypeError, ValueError):
+        return None
+    low, high = PARAGRAPH_SPACING_RANGE
+    return number if low <= number <= high else None
 
 
 def normalise_font_family(value):
@@ -506,7 +540,8 @@ def theme_to_json(theme):
     for field in COLOR_FIELDS:
         data[field] = filled.get(field)
     for field in TYPO_FIELDS:
-        if theme.get(field):
+        # 段间距 0 也是有效值，不能靠真假判断决定写不写
+        if theme.get(field) is not None:
             data[field] = theme[field]
     return data
 
@@ -593,6 +628,16 @@ def validate_theme(data):
         else:
             theme["line_spacing"] = spacing
 
+    if data.get("paragraph_spacing") is not None:
+        paragraph = normalise_paragraph_spacing(data.get("paragraph_spacing"))
+        if paragraph is None:
+            errors.append(("theme_error.invalid_paragraph_spacing",
+                           {"value": str(data.get("paragraph_spacing")),
+                            "min": PARAGRAPH_SPACING_RANGE[0],
+                            "max": PARAGRAPH_SPACING_RANGE[1]}))
+        else:
+            theme["paragraph_spacing"] = paragraph
+
     known = set(COLOR_FIELDS) | set(TYPO_FIELDS) | {NAME_FIELD}
     unknown = sorted(key for key in data if key not in known)
     if unknown:
@@ -625,6 +670,8 @@ def describe_errors(errors):
             parts.append(f"字号非法 {params.get('value')}")
         elif code.endswith("invalid_line_spacing"):
             parts.append(f"行距非法 {params.get('value')}")
+        elif code.endswith("invalid_paragraph_spacing"):
+            parts.append(f"段间距非法 {params.get('value')}")
         else:
             parts.append(code)
     return "；".join(parts) or "未知错误"
@@ -735,15 +782,19 @@ class ThemeManager:
         result = derive_missing(result)
 
         for field in TYPO_FIELDS:
-            if not theme.get(field):
+            raw = theme.get(field)
+            # 用 ``is None`` 而不是真假判断：段间距 0 是合法值
+            if raw is None:
                 continue
             if field == "font_family":
-                value = normalise_font_family(theme.get(field))
+                value = normalise_font_family(raw)
             elif field == "font_size":
-                value = normalise_font_size(theme.get(field))
+                value = normalise_font_size(raw)
+            elif field == "paragraph_spacing":
+                value = normalise_paragraph_spacing(raw)
             else:
-                value = normalise_line_spacing(theme.get(field))
-            if value:
+                value = normalise_line_spacing(raw)
+            if value is not None:
                 result[field] = value
 
         name = str(theme.get(NAME_FIELD) or "").strip()
@@ -778,7 +829,7 @@ class ThemeManager:
         theme = self.get_theme(theme_name, fallback=None)
         if not theme:
             return False
-        return any(theme.get(field) for field in TYPO_FIELDS)
+        return any(theme.get(field) is not None for field in TYPO_FIELDS)
 
     def next_available_name(self, base):
         """找一个没被占用的主题键：``base``、``base-2``、``base-3``……"""
