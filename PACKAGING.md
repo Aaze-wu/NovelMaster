@@ -1,7 +1,6 @@
 # NovelMaster 打包指南
 
-本文档介绍如何用 Nuitka 将 NovelMaster 打包成独立目录版或单文件可执行程序，
-以及如何用 Inno Setup 生成安装包（见 `release.ps1` / `release-advanced.ps1`）。
+本文档介绍如何用 Nuitka 将 NovelMaster 打包成独立目录版或单文件可执行程序。
 
 ## 📦 打包脚本说明
 
@@ -13,8 +12,6 @@
 | 环境安装（建 venv + 装依赖） | `install.bat` | `install.ps1` |
 | 基本打包（独立目录版） | `build.bat` | `build.ps1` |
 | 高级打包 | `build-advanced.bat` | `build-advanced.ps1` |
-| **一键发布（清理 + 打包 + 安装包）** | `release.bat` | `release.ps1` |
-| **高级发布（可调模式 / 优化级别，不带参数时会询问）** | `release-advanced.bat` | `release-advanced.ps1` |
 | 清理产物 | `clean.bat` | `clean.ps1` |
 | 运行程序 | `run.bat` / `run_debug.bat` | `run.ps1` / `run_debug.ps1` |
 
@@ -41,7 +38,7 @@
 - 简单易用，适合快速打包
 - **独立目录版**（`--standalone`，不带 `--onefile`），产物是 `dist\NovelMaster.dist\` 整个文件夹
 - 分发时必须整目录拷贝，**不能只拷 `NovelMaster.exe`**
-- 需要安装包时用 `release.ps1` / `release-advanced.ps1`（安装包正是对这个目录打包的）
+- 安装包（Inno Setup）正是对这个目录打包的
 - 自动检测 Nuitka，缺失时用镜像源自动安装
 - **自动发现本机所有 Python 解释器**（py 启动器 / 注册表 / 常见安装目录 / PATH），
   默认优先使用项目 `.venv`，其次才是 PATH 与本机已安装的 Python
@@ -54,102 +51,6 @@
 - 支持调试模式和优化级别选择
 - 更详细的配置和错误处理
 - 同样支持解释器自动发现、Nuitka 自动回退与镜像源安装
-
-### 一键发布脚本 (`release.ps1` / `release.bat`)
-
-把「清理 → 打包 → 安装包」串成一条命令，发布新版本只需跑它一次：
-
-```powershell
-.\release.ps1          # 或双击 release.bat
-```
-
-三步走：
-
-1. **清理** —— 删除旧产物目录（默认 `dist`），避免上一版的残留文件混进新包；
-2. **打包** —— 调用 `build-advanced.ps1 -Mode standalone -Optimize full` 生成 `dist\NovelMaster.dist\`；
-3. **打安装包** —— 调用 Inno Setup 生成 `InstallerOutput\NovelMaster-Release<版本号>.exe`。
-
-常用参数：
-
-```powershell
-.\release.ps1 -Optimize default      # 不打 LTO，编译快很多
-.\release.ps1 -SkipClean             # 不清理，在现有产物上重新打包
-.\release.ps1 -SkipInstaller         # 只要绿色版，不打安装包
-.\release.ps1 -OpenOutput            # 完成后打开产物目录
-.\release.ps1 -DryRun -NoPause       # 只预览全部命令，不编译、不清理
-.\release.ps1 -IsccPath "D:\Inno Setup 6\ISCC.exe"   # 手动指定 Inno 编译器
-```
-
-### 高级发布脚本 (`release-advanced.ps1` / `release-advanced.bat`)
-
-功能与 `release.ps1` 相同，但每一段都可单独开关，发布之外也能当日常工具用：
-
-```powershell
-.\release-advanced.ps1                      # 等价于 release.ps1（默认 full 优化）
-.\release-advanced.ps1 -Mode onefile        # 单文件模式（此种模式下会跳过安装包）
-.\release-advanced.ps1 -Mode debug          # 调试模式，保留调试信息
-.\release-advanced.ps1 -SkipBuild -SkipClean # 复用现成产物，只重打安装包
-.\release-advanced.ps1 -SkipInstaller -OpenOutput   # 只打绿色版并打开目录
-.\release-advanced.ps1 -OutputDir out -InstallerOutputDir setup   # 换输出目录
-.\release-advanced.ps1 -InstallerVersion 1.4.0       # 指定安装包版本号
-.\release-advanced.ps1 -DryRun -NoPause     # 只预览
-```
-
-和 `build-advanced.ps1` 一样，**不带参数运行时它会先交互式问一遍**（双击
-`release-advanced.bat` 时很方便）：
-
-```
-请选择打包模式:
-  1. 独立目录模式 (推荐，安装包需要它)
-  2. 单文件模式 (不会生成安装包)
-  3. 调试模式 (不会生成安装包)
-请选择 (1/2/3, 默认1):
-
-请选择优化级别:
-  1. 默认优化 (编译更快)
-  2. 最大优化 (启用 LTO，编译更慢、体积更小)
-请选择 (1/2, 默认2):
-
-是否生成安装包? (y/n, 默认y):
-```
-
-一路回车 = 和以前的行为完全一致（独立目录 + LTO + 生成安装包）。已在参数里显式给过
-的那一项不会再问（例如给了 `-Mode standalone` 就只问优化级别和安装包）。
-
-> `release.ps1` 调用它时带的是 `-NonInteractive`，所以一键脚本**永远不弹问题**。
-> 想在无人值守 / CI 里调高级版，也请加上 `-NonInteractive`。
-
-| 参数 | 说明 |
-| --- | --- |
-| `-Mode` | `standalone`（默认，目录版）/ `onefile` / `debug`；只有目录版会生成安装包。不传则交互询问 |
-| `-Optimize` | `full`（默认，带 `--lto=yes`，慢但快）/ `default`。不传则交互询问 |
-| `-Python` / `-NuitkaPython` | 转发给 `build-advanced.ps1` 的打包解释器 |
-| `-Mirror` | pip 镜像源，默认 `auto` |
-| `-OutputDir` | 程序产物目录，默认 `dist` |
-| `-InstallerOutputDir` | 安装包输出目录，默认 `InstallerOutput` |
-| `-IsccPath` | 手动指定 `ISCC.exe`，不指定则自动查找 |
-| `-InstallerVersion` | 覆盖安装包版本号，不指定则取 `enm\constants.py` 里的 `VERSION` |
-| `-SkipClean` / `-SkipBuild` / `-SkipInstaller` | 跳过对应步骤（`-SkipBuild` 会自动跳过清理）。不传 `-SkipInstaller` 时交互询问一次 |
-| `-OpenOutput` / `-OpenBuildOutput` | 完成后打开对应目录 |
-| `-DryRun` | 只打印要执行的命令 |
-| `-NonInteractive` / `-NoPause` | 不询问任何问题 / 结束后不等待按键（供批处理或 CI 调用） |
-
-相对路径按**项目根目录**解析，也接受绝对路径。
-
-#### 安装包（Inno Setup）是怎么打的
-
-- **支持 Inno Setup 6 / 5**，按以下顺序自动查找 `ISCC.exe`：`-IsccPath` → `PATH` →
-  `Program Files` / `Program Files (x86)` / `%LOCALAPPDATA%\Programs` 下的 `Inno Setup*` 目录 →
-  卸载信息注册表 → `App Paths\ISCC.exe`。
-- **版本号自动同步**：脚本从 `enm\constants.py` 读出 `VERSION`，通过 `/DMyAppVersion=` 传给
-  `.iss`，**不需要再手工改 `NovelMaster-Release.iss`**。
-- 安装包源目录、输出目录、图标路径同样通过 `/DProjectRoot` `/DDistDir`
-  `/DInstallerOutDir` `/DIconPath` 覆盖，所以改了 `-OutputDir` / `-InstallerOutputDir` 也不会错位。
-- **没装 Inno Setup 也不会失败**：会打印一份清楚的提示（说明已查找的位置），
-  然后**保留已经打好的程序包**并以成功状态退出；装了之后重跑 `-SkipBuild` 即可只补安装包。
-- 编译报错时同样**保留程序包**，并把 ISCC 的原始输出打出来。
-- `InstallerOutput` 目录**不会被清理**，旧版本安装包一直保留，新版本直接覆盖同名文件。
-- `.iss` 本身保持纯 ASCII，可直接用 Inno Setup IDE 打开编译（此时用文件里的默认值和默认路径）。
 
 ### 清理脚本 (`clean.ps1` / `clean.bat`)
 
@@ -175,13 +76,6 @@
 
 ```powershell
 .\build-advanced.ps1     # 或双击 build-advanced.bat（会询问模式和优化级别）
-```
-
-### 方法三：一键出安装包（推荐发版时用）
-
-```powershell
-.\release.ps1            # 或双击 release.bat（全自动，不询问）
-.\release-advanced.ps1   # 带交互选项的版本
 ```
 
 ### 常用参数
@@ -244,7 +138,7 @@
 2. **独立目录模式（发布推荐）**
    - 生成包含依赖的文件夹（`NovelMaster.dist\`）
    - 启动快，不存在解包开销
-   - `build.ps1` / `release.ps1` 默认就是这种模式，安装包也基于它
+   - `build.ps1` 默认就是这种模式，安装包也基于它
 
 3. **调试模式**
    - 包含调试信息
@@ -281,8 +175,8 @@ dist/
     └── *.dll           # 依赖库
 ```
 
-`build.ps1` 和 `release.ps1` 输出的就是这个目录，**分发要带上整个 `NovelMaster.dist` 文件夹**。
-安装包（`release.ps1` 的第三步）也是对整个目录打包，用户装完直接能用，不需要手动搬目录。
+`build.ps1` 输出的就是这个目录，**分发要带上整个 `NovelMaster.dist` 文件夹**。
+安装包也是对整个目录打包，用户装完直接能用，不需要手动搬目录。
 
 ## 🔧 依赖管理
 
@@ -583,47 +477,9 @@ pip install -i https://mirrors.aliyun.com/pypi/simple/ --upgrade nuitka
 - **任务栏浮层显示的是「未知」**：说明会话建起来了但没写元数据，确认已打开书籍
   （没开书时浮层标题为空是正常的）。
 
-### 10. 打安装包时提示「未找到 Inno Setup」
-
-程序包已经打好了，只是缺编译器，按提示装一个即可：
-
-```powershell
-winget install JRSoftware.InnoSetup
-```
-
-装完重跑 `-SkipBuild` 只补安装包，**不用重新编译**：
-
-```powershell
-.\release.ps1 -SkipClean -SkipBuild
-```
-
-装在非默认位置时用 `-IsccPath` 指定，例如：
-
-```powershell
-.\release.ps1 -SkipClean -SkipBuild -IsccPath "D:\Inno Setup 6\ISCC.exe"
-```
-
 ## 🔄 更新打包
 
 ### 代码更新后（发布一版）
-
-```powershell
-.\release.ps1          # 清理 → 目录版打包 → 安装包，一条命令到底
-```
-
-只想拿到绿色版（不打安装包）：
-
-```powershell
-.\release.ps1 -SkipInstaller
-```
-
-改了版本号却不想重编译，只重打一个安装包：
-
-```powershell
-.\release.ps1 -SkipClean -SkipBuild     # 复用现有 dist，只跑 Inno Setup
-```
-
-### 只想打包、不要安装包
 
 ```powershell
 # 1. 清理旧文件
@@ -633,24 +489,18 @@ winget install JRSoftware.InnoSetup
 .\build.ps1
 ```
 
-或者一条命令搞定（模式选 1，安装包选 n）：
-
-```powershell
-.\release-advanced.ps1     # 也可以双击 release-advanced.bat
-```
-
 ### 依赖更新后
 
 ```powershell
 # 1. 更新依赖（自动选择镜像源；-Recreate 可重建环境）
 .\install.ps1
 
-# 2. 清理并重新发布
-.\release.ps1
+# 2. 清理并重新打包
+.\clean.ps1
+.\build.ps1
 ```
 
-> 发布前的版本号只需改一处：`enm\constants.py` 里的 `VERSION`。
-> 程序文件版本信息与安装包文件名都会跟着变，`.iss` 不用动。
+> 发布前的版本号只需改一处：`enm\constants.py` 里的 `VERSION`，程序文件版本信息会跟着变。
 
 ## 📊 性能建议
 
@@ -682,9 +532,8 @@ winget install JRSoftware.InnoSetup
 ## 📋 发布检查清单
 
 - [ ] `enm\constants.py` 里的 `VERSION` 已改成新版本号
-- [ ] 跑 `.\release.ps1` 一次完成打包 + 安装包
-- [ ] 安装包已在 `InstallerOutput\NovelMaster-Release<版本号>.exe`
-- [ ] 装一次安装包，确认开始菜单 / 桌面快捷方式、图标、版本号和媒体键都正常- [ ] 测试所有功能正常
+- [ ] 已重新打包（`.\clean.ps1` + `.\build.ps1`）
+- [ ] 测试所有功能正常
 - [ ] 检查文件体积是否合理
 - [ ] 验证图标和版本信息
 - [ ] 在不同Windows版本测试
