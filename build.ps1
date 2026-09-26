@@ -778,6 +778,15 @@ $nuitkaArgs += @(
     '--include-package=enm'
     '--include-package=ebooklib'
     '--include-package=chardet'
+    # chardet 7.x 把统计模型放在 chardet/models/*.bin（models.bin 约 575 KB），
+    # 只加 --include-package 会把 .py 收进去但不收这些数据文件，冻结版里
+    # chardet.detect() 直接抛 FileNotFoundError，TXT 只能退回 utf-8 → GBK 书乱码
+    '--include-package-data=chardet'
+    # 注意：Nuitka 的 default_ignored_suffixes 含 ".bin"（它假定 .bin 是编译
+    # 产物），所以上面那条只会收下 chardet/models/training_metadata.yaml，四个
+    # *.bin 模型会被静默跳过（构建成功、dist 里却没有模型，运行期才炸）。
+    # 带 ":*.bin" 模式时 Nuitka 会先把该后缀从忽略表里移除再扫描，必须加上
+    '--include-package-data=chardet:*.bin'
     '--include-package=PIL'
     '--include-package=pypdf'
     '--include-package=docx'

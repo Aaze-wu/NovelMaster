@@ -1923,9 +1923,20 @@ class NovelMaster(QMainWindow):
             return
         
         if isinstance(self.current_reader, FolderReader):
-            reader = self.current_reader.get_current_reader()
-            if reader and reader.get_chapter_count():
-                progress = (reader.current_chapter + 1) / reader.get_chapter_count() * 100
+            reader = self.current_reader
+            inner = reader.get_current_reader()
+            file_count = reader.get_file_count()
+            if file_count:
+                # 文件夹模式下「一章」就是一个文件，进度必须按整本书算：
+                # 已经读完的文件数 + 当前文件内的章位置。以前只按当前文件的
+                # 章数算，导致每翻到一个文件的第 2 章就显示 100%。
+                if inner and inner.get_chapter_count():
+                    within = ((inner.current_chapter + 1)
+                              / inner.get_chapter_count())
+                else:
+                    within = 1.0        # 打不开 / 没有章节的文件算已经翻过去
+                progress = ((reader.current_file_index + within)
+                            / file_count * 100)
             else:
                 progress = 0
         else:
@@ -3663,6 +3674,13 @@ class NovelMaster(QMainWindow):
                 self.speech_available() and display.textCursor().hasSelection())
 
         menu.addSeparator()
+        # 选中的词一键进词典：引擎对付不了的多音字（地名末尾的「地」这类）
+        # 只能人工加词，右键是最顺手的入口
+        pron_action = menu.addAction(i18n.t("menu.pron_add"))
+        pron_action.setEnabled(display.textCursor().hasSelection())
+        pron_action.triggered.connect(self.add_pron_word_from_selection)
+
+        menu.addSeparator()
         copy_action = menu.addAction(i18n.t("menu.copy"))
         copy_action.setEnabled(display.textCursor().hasSelection())
         copy_action.triggered.connect(display.copy)
@@ -3673,6 +3691,28 @@ class NovelMaster(QMainWindow):
         finally:
             # 上面借用了共享动作（这样才有快捷键提示），用完把状态还回去
             self.update_speech_controls()
+
+    def add_pron_word_from_selection(self):
+        """右键菜单：把正文里选中的词填进「读音纠正」的「原词」框。
+
+        只填不落盘——「改成」怎么写是用户的决定，填完点「保存」才生效
+        （见 :meth:`~enm.ui.tts_pron_dialog.TtsPronDialog.prefill`）。
+
+        选中的文字先滤掉空白和标点：Qt 的 ``selectedText()`` 拿换行给的是
+        ``U+2029``，而「千绝地。」这样连着句号一起选也是常事，两种都得能
+        认成「千绝地」。滤完什么都不剩（比如只选了标点）就提示重选。
+        """
+        selected = self.reader_display.textCursor().selectedText()
+        word = "".join(ch for ch in selected if ch.isalnum())
+        if not word:
+            QMessageBox.information(self, i18n.t("common.info"),
+                                    i18n.t("tts.pron.need_selection"))
+            return
+        dialog = self.tts_pron_dialog()
+        dialog.prefill(word)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
 
     def speak_from_cursor(self):
         """「从光标处开始」：从光标所在的那一句读到本章末尾（一次性）"""
@@ -3747,17 +3787,45 @@ class NovelMaster(QMainWindow):
             queue.load([], 0)
 
     def _on_speech_range_finished(self, rng):
-        """范围读完：跨章范围就翻下一章接着读，否则收摊并复位成整章"""
+        """范围读完：该接着读就翻下一章，否则收摊并复位成整章
+
+        三种范围的处理不一样：
+
+        * 「指定起止章节」：还没读到止章就接着读 —— 范围本身就是「连着读」
+          的意思，不看「自动读下一章」开关；
+        * 「从光标处开始朗读」：章末是自然的接缝，接着往下读，但听用户的
+          ——「自动读下一章」勾着才翻，「读完本章停」定着就读完这章收摊；
+        * 「只读选中内容」：用户点明了只读这一段，读完一定停。
+        """
         if rng["kind"] == "chapters" and self.current_chapter_index() < rng["to"]:
-            # 跨章朗读时不管「自动读下一章」开关：范围本身就是「连着读」的意思
-            self._pending_scroll_percent = 0.0
-            self._tts_continues = True
-            try:
-                self.next_chapter()
-            finally:
-                self._tts_continues = False
+            self._continue_speech_next_chapter()
             return
+        if rng["kind"] == "cursor" and self.has_next_chapter():
+            if self._speech_timer_mode == "chapter":
+                # 「读完本章停」是一次性的：章末已经到了，就在这里兑现掉
+                # （on_speech_finished 见到范围就提前 return，轮不到它清）
+                self._clear_speech_timer()
+                self.end_speech_range("朗读已读完本章，按定时设置停下")
+                return
+            if self.speech_auto_next_enabled():
+                # 新的一章要从头整章读：先把这个一次性范围丢掉，否则旧范围的
+                # 字符偏移会被套到新章上（新章开头根本接不上那几个字）
+                self._speech_range = None
+                self.logger.log("「从光标处朗读」读完本章，接着读下一章")
+                self._continue_speech_next_chapter()
+                return
         self.end_speech_range("朗读范围读完，停止朗读")
+
+    def _continue_speech_next_chapter(self):
+        """翻到下一章，并从章首接着朗读（三处自动翻章共用的那一小段）"""
+        # 自动翻章时别恢复上一章的章内位置，否则新章会跳到中间去
+        self._pending_scroll_percent = 0.0
+        self._tts_continues = True
+        try:
+            self.next_chapter()
+        finally:
+            # sync_speech_content 正常会把它清掉，这里是「翻章没换成」的兜底
+            self._tts_continues = False
 
     # ---- 定时停止 ----
 
@@ -3979,14 +4047,7 @@ class NovelMaster(QMainWindow):
         if not (self.speech_auto_next_enabled() and self.has_next_chapter()):
             self.logger.log("朗读完毕")
             return
-        # 自动翻章时别恢复上一章的章内位置，否则新章会跳到中间去
-        self._pending_scroll_percent = 0.0
-        self._tts_continues = True
-        try:
-            self.next_chapter()
-        finally:
-            # sync_speech_content 正常会把它清掉，这里是「翻章没换成」的兜底
-            self._tts_continues = False
+        self._continue_speech_next_chapter()
 
     def on_speech_failed(self, message):
         """朗读出错：提示一次并复位界面"""

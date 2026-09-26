@@ -50,6 +50,7 @@
     "tts_next_sentence": "Next Sentence",
     "tts_voice": "Choose a Voice…",
     "tts_pron": "Pronunciation Fixes (Polyphones)…",
+    "pron_add": "Add Selection to Pronunciation Fixes…",
     "tts_engine": "Speech Engine",
     "tts_range": "Reading Range",
     "tts_range_chapter": "Whole Chapter",
@@ -194,7 +195,7 @@
     },
     "pron": {
       "dialog_title": "Pronunciation Fixes",
-      "hint": "When the engine mispronounces a polyphonic character, swap it for a different character that has exactly the same sound and only that one reading — for example 银行 becomes 银航. Only the copy sent to the engine is changed: the text itself, sentence highlighting and auto-scroll are untouched.",
+      "hint": "When the engine mispronounces a polyphonic character, swap it for a different character that has exactly the same sound and only that one reading — for example 银行 becomes 银航. Only the copy sent to the engine is changed: the text itself, sentence highlighting and auto-scroll are untouched. (To fill the word in, select it in the reading area and pick “Add Selection to Pronunciation Fixes…” from the right-click menu.)",
       "master": "Enable pronunciation fixes",
       "auto": "Infer polyphones automatically (needs pypinyin, off by default)",
       "auto_tip": "Reads every character in context and only substitutes where the engine gets it wrong. Off by default: measured against a neural engine (edge) it is the engine that gets polyphones right, and when this layer misjudges it mangles common characters (不 → 醭).",
@@ -229,7 +230,9 @@
       "need_select": "Select the row you want to work on first.",
       "not_user": "“{word}” is a built-in rule with no user entry to delete; it is already the default behaviour.",
       "reverted_none": "“{word}” is not a built-in rule; it has been removed from the user dictionary.",
-      "keep_note": "Leave as is, do not substitute"
+      "keep_note": "Leave as is, do not substitute",
+      "need_selection": "Select the word you want to fix in the reading area first (e.g. 千绝地).",
+      "prefill_long": "The selection is {n} characters long. Dictionary entries are usually 2–4 characters (e.g. 千绝地); the longer the entry, the less often it matches — check whether extra context got selected into the word field."
     },
     "engine": {
       "sherpa": "Offline neural voices (Piper / Kokoro)",

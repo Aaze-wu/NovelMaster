@@ -48,6 +48,10 @@ KEEP_LABEL = "（不替换）"
 #: 预览框里的默认例句，一行里塞了三个典型读错的词
 SAMPLE_TEXT = "他去银行取钱，重新数了一遍，又买了张薄饼。"
 
+#: 「把选中的字加入词典」时「原词」的长度上限，超过就提醒一句。
+#: 词典条目 2~4 字是主流，专名 3~5 字；到 7 字基本就是把半句话选进来了。
+PREFILL_MAX_LEN = 6
+
 
 class TtsPronDialog(QDialog):
     """多音字读音纠正的设置窗口（非模态，改完即时生效）。"""
@@ -296,13 +300,55 @@ class TtsPronDialog(QDialog):
         self._update_preview()
         self._update_status()
 
-    def _select_word(self, word):
+    def _find_row(self, word):
+        """按「原词」找到表格里对应的那一行（没有就返回 None）"""
         for index in range(self.tree.topLevelItemCount()):
             item = self.tree.topLevelItem(index)
             if item.data(0, WORD_ROLE) == word:
-                self.tree.setCurrentItem(item)
-                self.tree.scrollToItem(item)
-                return
+                return item
+        return None
+
+    def _select_word(self, word):
+        item = self._find_row(word)
+        if item is not None:
+            self.tree.setCurrentItem(item)
+            self.tree.scrollToItem(item)
+
+    def prefill(self, word):
+        """把正文里选中的词填进「原词」（正文右键菜单的入口）。
+
+        只填不保存 —— 「改成」怎么写是用户的决定，填完点「保存」才落盘。
+        这个词要是已经在表里（用户条目或内置词），顺手把它那一行的「改成」
+        「说明」带出来，用户改一个字就是一条覆盖记录。
+
+        超过 :data:`PREFILL_MAX_LEN` 字多半是连着上下文一起选了：照填不误，
+        但在状态栏提醒一句 —— 条目越长越难命中，长句条目基本是白加。
+        """
+        word = (word or "").strip()
+        self.source_edit.setText(word)
+        self.target_edit.clear()
+        self.note_edit.clear()
+        item = self._find_row(word) if word else None
+        if item is not None:
+            self.tree.setCurrentItem(item)
+            self.tree.scrollToItem(item)
+            # 目标行本来就是当前行时信号不触发，所以这里显式回填一次
+            self._load_row(item)
+        else:
+            # 表格里没有这个词：连选中项一起清掉，免得亮着的那行和「原词」对不上
+            self.tree.setCurrentItem(None)
+            self.tree.clearSelection()
+        if word and len(word) > PREFILL_MAX_LEN:
+            self._complain(i18n.t(
+                "tts.pron.prefill_long",
+                default="选中的内容有 {n} 个字。词典条目一般是 2~4 字的词"
+                        "（例如「千绝地」），条目越长越难命中——确认下"
+                        "「原词」里有没有把上下文一起选进来。", n=len(word)))
+        else:
+            # 上一次的提醒别留着，用户重选一次词就该看见正常的状态
+            self._update_status()
+        self.target_edit.setFocus()
+        self.target_edit.selectAll()
 
     def _update_status(self):
         pronouncer = get_pronouncer()
@@ -346,12 +392,18 @@ class TtsPronDialog(QDialog):
     def _on_row_changed(self, current, _previous):
         if self._filling or current is None:
             return
-        word = current.data(0, WORD_ROLE) or ""
-        self.source_edit.setText(word)
-        target = current.text(1)
+        self._load_row(current)
+
+    def _load_row(self, item):
+        """把表格里某一行的内容回填到下面三个输入框（空白的显示成空）
+
+        :meth:`prefill` 也会直接调它 —— 那条路不经过 ``currentItemChanged``。
+        """
+        self.source_edit.setText(item.data(0, WORD_ROLE) or "")
+        target = item.text(1)
         self.target_edit.setText("" if target == KEEP_LABEL else target)
-        self.note_edit.setText("" if current.text(3) == KEEP_LABEL
-                              else current.text(3))
+        note = item.text(3)
+        self.note_edit.setText("" if note == KEEP_LABEL else note)
 
     def _on_master_toggled(self, checked):
         if self._filling:

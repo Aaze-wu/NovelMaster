@@ -57,6 +57,7 @@ MFCC+DTW 距离为 **0.00**（就是一个字都没读错的铁证）。真正�
 import json
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 from ..constants import DATA_PATH
@@ -332,7 +333,8 @@ class Pronouncer:
     """读音纠正器。一次 ``correct()`` = 三层替换一起算完。"""
 
     def __init__(self, path=None):
-        self.path = path or DICT_PATH
+        # 传进来的可能是 str（配置项 / 调用方直接给路径），load() 里按 Path 用
+        self.path = Path(path) if path else DICT_PATH
         self._entries: List[PronEntry] = []
         self._cache: dict = {}
         self._enabled = True            # 总开关
