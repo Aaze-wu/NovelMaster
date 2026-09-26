@@ -80,7 +80,18 @@ class ConfigManager:
             # * shortcuts_mouse —— 鼠标键绑定（鼠标侧键 / 中键），与键盘各存一套，
             #   互不影响：同一个动作可以同时有键盘键和鼠标键
             "shortcuts": {},
-            "shortcuts_mouse": {}
+            "shortcuts_mouse": {},
+            # 检查更新（v1.4.4，见 enm.managers.update）：
+            # * auto_check_update —— 启动时自动检查更新。**默认关闭**：不打招呼
+            #   就联网不合适，想用的用户在「设置」里打开（开一次就在 config.json
+            #   里记着）
+            # * update_mirror —— 下载安装包用的加速前缀（空 = 只用内置镜像，
+            #   见 update.MIRROR_PREFIXES）。它排在内置镜像之后，是最后的兜底
+            # * update_last_check —— 上次自动检查的 unix 时间戳。一天之内不再
+            #   自动问，免得每次重启都打一次 GitHub 接口
+            "auto_check_update": False,
+            "update_mirror": "",
+            "update_last_check": 0
         }
         self.config = self.load_config()
     

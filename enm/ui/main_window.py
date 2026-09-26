@@ -27,6 +27,7 @@ from ..managers.book_identity import (FINGERPRINT_SAMPLE, build_identity,
                                       chapter_index_in,
                                       normalise_chapter_title)
 from ..managers import tts_models
+from ..managers import update as update_manager
 from ..managers.media_keys import (MediaKeysController, media_keys_available,
                                    media_keys_importable,
                                    media_keys_unavailable_reason)
@@ -62,6 +63,7 @@ from .tts_pron_dialog import TtsPronDialog
 from .tts_range_dialog import SpeechRangeDialog
 from .tts_voice_dialog import TtsVoiceDialog, VoiceSnapshot
 from .typography_dialog import TypographySettingsDialog
+from .update_dialog import UpdateDialog
 from ..logger import logger
 
 # 阅读区字号范围（字体增大 / 减小用）
@@ -84,6 +86,10 @@ MAX_SHARE_IGNORED = 100
 # 全局媒体键的会话在自己的线程里建，起来要一会儿；
 # 隔这么久回头看一眼有没有报错（毫秒）
 MEDIA_KEYS_CHECK_MS = 1500
+
+# 启动后隔多久做一次静默的更新检查（毫秒）：
+# 等界面把上次那本书铺完了再联网，别跟打开书的 IO 抢路
+AUTO_UPDATE_DELAY_MS = 4000
 
 
 def clamp_sidebar_width(value):
@@ -242,6 +248,15 @@ class NovelMaster(QMainWindow):
         self._media_keys = None
         #: 媒体键启动失败只弹一次，免得每次翻章都弹
         self._media_keys_error_reported = False
+
+        # 检查更新（v1.4.4，见 enm.managers.update）：线程与窗口都是懒创建，
+        # 没开这个功能就一行代码也不跑
+        self._update_worker = None
+        self._update_dialog = None
+        #: 刚发出去的那次检查是不是「启动时的静默检查」（见 _on_update_checked）
+        self._auto_check_pending = False
+        #: 这次退出是为了装新版本，别把窗口藏进托盘
+        self._quitting_for_update = False
         
         # 设置窗口图标
         self.set_window_icon()
@@ -256,6 +271,9 @@ class NovelMaster(QMainWindow):
             self.toggle_sidebar_btn.show()
         
         self.logger.log(f"{PROJECT_NAME} 启动成功")
+
+        # 启动时的静默更新检查（默认关闭，见 ConfigManager.default_config）
+        self._schedule_auto_update_check()
     
     def set_window_icon(self):
         """设置窗口图标"""
@@ -509,6 +527,9 @@ class NovelMaster(QMainWindow):
         """这次点 X 是不是该收进托盘而不是退出"""
         if getattr(self, "_quitting_from_tray", False):
             return False
+        # 退出是为了装新版本：这是真的退，藏进托盘会把安装程序晾在那儿
+        if getattr(self, "_quitting_for_update", False):
+            return False
         if getattr(self, "_tray_icon", None) is None:
             return False
         return bool(self.config_manager.get("tray_close_to_tray", False))
@@ -518,6 +539,144 @@ class NovelMaster(QMainWindow):
         self._quitting_from_tray = True
         self.close()
         QApplication.quit()
+
+    # ---------------- 检查更新（v1.4.4） ----------------
+
+    def update_worker(self):
+        """取更新线程（懒创建；检查与下载都在它里面排队）"""
+        if self._update_worker is None:
+            self._update_worker = update_manager.UpdateWorker(self)
+            self._update_worker.checked.connect(self._on_update_checked)
+        return self._update_worker
+
+    def _schedule_auto_update_check(self):
+        """按设置安排一次启动后的静默检查。
+
+        默认不开（``auto_check_update``）：不打招呼就联网问 GitHub 不合适。
+        就算开了，一天也只问一次（``update_last_check``）—— 否则每次重启都
+        打一次接口，匿名调用的额度经不起这么花。
+        """
+        if not self.config_manager.get("auto_check_update", False):
+            return
+        if not update_manager.should_auto_check(
+                self.config_manager.get("update_last_check", 0)):
+            if DEBUG_MODE:
+                self.logger.debug("距上次自动检查不到一天，这次启动跳过")
+            return
+        QTimer.singleShot(AUTO_UPDATE_DELAY_MS, self._auto_check_update)
+
+    def _auto_check_update(self):
+        """跑一次静默检查：查出新版本才会冒出来问一句"""
+        worker = self.update_worker()
+        if worker.busy():
+            return
+        self.config_manager.set("update_last_check", int(time.time()))
+        self._auto_check_pending = True
+        if not worker.submit_check():
+            self._auto_check_pending = False
+
+    def _on_update_checked(self, state, result):
+        """更新线程查出结果了（对话框自己发起的那次由对话框处理）"""
+        if not self._auto_check_pending:
+            return
+        self._auto_check_pending = False
+        if state != "update":
+            if DEBUG_MODE:
+                self.logger.debug(f"自动检查更新：{state}")
+            return
+        self.logger.log(f"自动检查发现新版本 v{result.version}")
+        if not self.isVisible():
+            # 收在托盘里：不打扰，用户下次打开主窗口再说
+            return
+        answer = QMessageBox.question(
+            self, i18n.t("update.notify_title", default="发现新版本"),
+            i18n.t("update.notify_body", version=result.version,
+                   default="NovelMaster v{version} 已经发布，现在看看吗？"),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if answer == QMessageBox.Yes:
+            self.check_update(preloaded=(state, result))
+
+    def toggle_auto_check_update(self, checked):
+        """「设置 → 启动时检查更新」"""
+        checked = bool(checked)
+        self.config_manager.set("auto_check_update", checked)
+        self.logger.log(f"启动时自动检查更新: {'开启' if checked else '关闭'}")
+        if checked:
+            # 刚打开就查一次，别让用户等到下次启动才看见效果
+            self._auto_check_update()
+
+    def set_update_mirror(self):
+        """「设置 → 更新下载镜像」：填一个加速前缀，留空就记回默认"""
+        current = self.config_manager.get("update_mirror", "") or ""
+        text, ok = QInputDialog.getText(
+            self, i18n.t("update.mirror_title", default="更新下载镜像"),
+            i18n.t("update.mirror_prompt",
+                   default="GitHub 直连太慢时可以填一个加速前缀，下载安装包"
+                           "时会拼在地址前面（排在内置镜像之后）。\n"
+                           "例如：https://gh-proxy.com/\n"
+                           "留空表示只用内置镜像。"),
+            QLineEdit.Normal, current)
+        if not ok:
+            return
+        text = text.strip()
+        if text and not text.endswith("/"):
+            text += "/"
+        if text and not text.lower().startswith(("http://", "https://")):
+            QMessageBox.warning(
+                self, i18n.t("common.warning"),
+                i18n.t("update.mirror_invalid",
+                       default="镜像前缀得是一个 http:// 或 https:// 开头的"
+                               "地址。"))
+            return
+        self.config_manager.set("update_mirror", text)
+        self.logger.log(f"更新下载镜像: {text or '（未设置）'}")
+
+    def check_update(self, preloaded=None):
+        """打开「检查更新」窗口。
+
+        ``preloaded`` 是启动时那次自动检查的结论：直接拿它铺开界面，省掉
+        一次重复的接口调用。
+        """
+        dialog = UpdateDialog(
+            self,
+            ui_theme=self.theme_manager.get_theme(self.current_theme_name()),
+            titlebar_theme=self.dialog_titlebar_theme(),
+            worker=self.update_worker(),
+            preloaded=preloaded)
+        self._update_dialog = dialog
+        try:
+            dialog.exec_()
+        finally:
+            self._update_dialog = None
+        if dialog.install_path:
+            self.quit_and_install(dialog.install_path)
+
+    def quit_and_install(self, path):
+        """启动安装程序并退出（用户在更新窗口里已经确认过一次）"""
+        self._quitting_for_update = True
+        if not update_manager.launch_installer(path):
+            self._quitting_for_update = False
+            QMessageBox.warning(
+                self, i18n.t("common.warning"),
+                i18n.t("update.launch_failed",
+                       default="安装程序没能启动，可以手动运行：\n{path}",
+                       path=path))
+            return
+        self.logger.log("退出程序以安装新版本")
+        self.close()
+        QApplication.quit()
+
+    def _shutdown_update(self):
+        """退出前收掉更新线程（正在下安装包就断在半路，.part 留着下次续）"""
+        worker, self._update_worker = self._update_worker, None
+        self._update_dialog = None
+        self._auto_check_pending = False
+        if worker is None:
+            return
+        try:
+            worker.shutdown()
+        except Exception as e:  # noqa: BLE001
+            self.logger.log(f"关闭更新线程失败: {e}", "WARN")
 
     def _show_tray_notice(self):
         """第一次收进托盘时冒个泡，免得用户以为程序已经退了"""
@@ -910,6 +1069,17 @@ class NovelMaster(QMainWindow):
 
         # 读音纠正：与朗读菜单里那一份是同一个动作
         settings_menu.addAction(self.speech_pron_action)
+
+        # 检查更新（v1.4.4）：动作本身在「帮助」菜单里，这里只放两个开关
+        settings_menu.addSeparator()
+        self.auto_check_update_action = self.make_action(
+            "menu.auto_check_update", self.toggle_auto_check_update)
+        self.auto_check_update_action.setCheckable(True)
+        self.auto_check_update_action.setChecked(
+            bool(self.config_manager.get("auto_check_update", False)))
+        settings_menu.addAction(self.auto_check_update_action)
+        settings_menu.addAction(self.make_action("menu.update_mirror",
+                                                 self.set_update_mirror))
         
         # 语言设置（选项来自 i18n.available_languages，新增语言无需改这里）
         self.language_menu = self.add_menu(settings_menu, "menu.language")
@@ -925,6 +1095,9 @@ class NovelMaster(QMainWindow):
         
         # 帮助菜单
         help_menu = self.add_menu(menubar, "menu.help")
+        help_menu.addAction(self.make_action(
+            "menu.check_update", lambda _checked=False: self.check_update()))
+        help_menu.addSeparator()
         help_menu.addAction(self.make_action("menu.about", self.show_about))
     
     def create_toolbar(self):
@@ -3266,7 +3439,7 @@ class NovelMaster(QMainWindow):
     def open_tts_voice_dialog(self):
         """打开「选择音色」窗口（朗读菜单里的入口）"""
         if not self.speech_available():
-            self.tts_bar.set_notice(i18n.t("menu.tts_unavailable"))
+            self.tts_bar.set_notice(i18n.t("msg.tts_unavailable"))
             return
         dialog = self.tts_voice_dialog()
         dialog.show()
@@ -4153,6 +4326,9 @@ class NovelMaster(QMainWindow):
         # 释放阅读器（清理 ZIP/JAR/MOBI 等解压出来的临时文件）
         self.release_current_reader()
         
+        # 更新线程（正在下安装包就断在半路，.part 留着）
+        self._shutdown_update()
+
         # 托盘图标（连带它自己建的那份菜单）
         self._shutdown_tray()
 
