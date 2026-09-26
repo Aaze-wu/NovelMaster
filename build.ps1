@@ -783,7 +783,8 @@ $nuitkaArgs += @(
     '--include-package=docx'
     '--include-data-dir=lang=lang'
     '--include-data-dir=icon=icon'
-    '--windows-uac-admin'
+    # 不加 --windows-uac-admin：程序数据全在 %APPDATA%\NovelMaster，注册表只写
+    # HKCU，HKLM 只读，不需要管理员；带上它只会让每次启动都弹 UAC
     '--remove-output'
     $MainFileName
 )
@@ -807,6 +808,15 @@ if (Test-OptionalModule -Exe $buildPython -Module 'edge_tts') {
 }
 else {
     Write-Info '朗读在线音色: 未安装 edge-tts，本次不带（不影响系统语音朗读）'
+}
+
+# 读音纠正（多音字）「自动推断」层的可选依赖（同上，没装就跳过）
+if (Test-OptionalModule -Exe $buildPython -Module 'pypinyin') {
+    $nuitkaArgs += @('--include-package=pypinyin', '--include-package-data=pypinyin')
+    Write-Ok '读音纠正自动推断: 已包含 pypinyin'
+}
+else {
+    Write-Info '读音纠正自动推断: 未安装 pypinyin，本次不带（用户词典与内置规则照常生效）'
 }
 
 # 全局媒体键（v1.3.9）的可选依赖：pywinrt 投影包（同上，没装就跳过）

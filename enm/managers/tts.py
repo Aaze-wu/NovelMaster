@@ -52,6 +52,7 @@ except ImportError:  # pragma: no cover - 非 Windows
 
 from .. import i18n
 from ..logger import logger
+from .tts_pron import get_pronouncer
 
 # ---------------- 断句 ----------------
 
@@ -1414,6 +1415,18 @@ class SpeechQueue(QObject):
         if self._backend is not None:
             self._backend.stop()
 
+    def _speech_text(self, text):
+        """拿去合成的文本：先把会被读错的字换成同音字（多音字纠正）。
+
+        只改**送给引擎的那份副本**，文档正文和 ``SentenceSpan.start/end`` 一律
+        不动，所以逐句高亮和自动滚动不受影响。纠正器没开、或出错时原样返回。
+        """
+        try:
+            return get_pronouncer().correct(text)
+        except Exception as exc:  # noqa: BLE001 - 纠正失败不能打断朗读
+            logger.log(f"读音纠正失败: {exc}", "DEBUG")
+            return text
+
     def _speak_current(self):
         """把当前句喂给引擎"""
         self._watchdog.stop()
@@ -1427,7 +1440,8 @@ class SpeechQueue(QObject):
         self._elapsed.restart()
         self.sentence_changed.emit(self._index)
 
-        if self._backend is None or not self._backend.speak(span.text):
+        if self._backend is None or not self._backend.speak(
+                self._speech_text(span.text)):
             self._awaiting = False
             self._set_state(self.IDLE)
             message = i18n.t("tts.error.speak_failed",
@@ -1451,7 +1465,7 @@ class SpeechQueue(QObject):
         if nxt < 0 or nxt >= len(self._spans):
             return
         try:
-            self._backend.preload(self._spans[nxt].text)
+            self._backend.preload(self._speech_text(self._spans[nxt].text))
         except Exception as exc:  # noqa: BLE001 - 预合成失败不影响主流程
             logger.log(f"预合成下一句失败: {exc}", "DEBUG")
 

@@ -25,7 +25,7 @@ from PyQt5.QtWidgets import (QComboBox, QDialog, QHBoxLayout, QLabel,
 from .. import i18n
 from ..managers import tts_models
 from ..managers.tts import EDGE_ENGINE, NEURAL_ENGINE, order_voices, voice_label
-from .theme_qss import build_style_sheet
+from .theme_qss import apply_style_sheet
 from .titlebar import apply_to_widget
 
 #: 音色在列表里的那份数据：引擎、可切换的引擎、音色表、当前音色、
@@ -68,13 +68,14 @@ class TtsVoiceDialog(QDialog):
         super().__init__(parent)
 
         self._titlebar_theme = titlebar_theme
+        #: 当前用的界面主题（换主题时由 :meth:`apply_ui_theme` 更新）
+        self._ui_theme = ui_theme
         #: 现取数据用的小函数（返回 :class:`VoiceSnapshot`），由主窗口给
         self._snapshot_source = snapshot
         self._snapshot = VoiceSnapshot()
         self._filling = False
 
-        if ui_theme:
-            self.setStyleSheet(build_style_sheet(ui_theme))
+        apply_style_sheet(self, ui_theme)
 
         self.setWindowTitle(i18n.t("tts.voice.dialog_title", default="选择音色"))
         # 挑音色的时候多半在听，别把阅读器锁住
@@ -159,6 +160,19 @@ class TtsVoiceDialog(QDialog):
         super().showEvent(event)
         apply_to_widget(self, self._titlebar_theme)
         self.refresh()
+
+    def apply_ui_theme(self, ui_theme, titlebar_theme=None):
+        """换主题：窗口开着的时候也要立刻变，而不是等关掉重开。
+
+        主窗口 ``apply_theme()`` 会遍历所有**非模态**对话框调这个方法——
+        模态对话框开着时菜单点不动，本来就换不了主题。原生标题栏的颜色
+        一起更新（``titlebar_theme`` 为空表示「标题栏跟随主题」是关的，
+        这时不动它，和 :meth:`showEvent` 一个口径）。
+        """
+        self._ui_theme = ui_theme
+        apply_style_sheet(self, ui_theme)
+        self._titlebar_theme = titlebar_theme
+        apply_to_widget(self, titlebar_theme)
 
     # ------------------------------------------------------------------ 数据
 

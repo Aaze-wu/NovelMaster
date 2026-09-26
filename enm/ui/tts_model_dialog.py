@@ -24,7 +24,7 @@ from PyQt5.QtWidgets import (QDialog, QHBoxLayout, QLabel, QMessageBox,
 from .. import i18n
 from ..managers import tts_models
 from ..managers.tts_models import ModelDownloadWorker
-from .theme_qss import build_style_sheet
+from .theme_qss import apply_style_sheet
 from .titlebar import apply_to_widget
 
 
@@ -48,13 +48,14 @@ class TtsModelDialog(QDialog):
         super().__init__(parent)
 
         self._titlebar_theme = titlebar_theme
+        #: 当前用的界面主题（换主题时由 :meth:`apply_ui_theme` 更新）
+        self._ui_theme = ui_theme
         #: 下载线程：主窗口传进来时可以跨窗口复用（约定：谁建谁管）
         self._worker = worker if worker is not None else ModelDownloadWorker(self)
         self._own_worker = worker is None
         self._busy_id = ""
 
-        if ui_theme:
-            self.setStyleSheet(build_style_sheet(ui_theme))
+        apply_style_sheet(self, ui_theme)
 
         self.setWindowTitle(i18n.t("tts.model.dialog_title",
                                    default="音色管理"))
@@ -73,6 +74,19 @@ class TtsModelDialog(QDialog):
         super().showEvent(event)
         apply_to_widget(self, self._titlebar_theme)
         self.refresh()
+
+    def apply_ui_theme(self, ui_theme, titlebar_theme=None):
+        """换主题：窗口开着的时候也要立刻变，而不是等关掉重开。
+
+        主窗口 ``apply_theme()`` 会遍历所有**非模态**对话框调这个方法——
+        模态对话框开着时菜单点不动，本来就换不了主题。原生标题栏的颜色
+        一起更新（``titlebar_theme`` 为空表示「标题栏跟随主题」是关的，
+        这时不动它，和 :meth:`showEvent` 一个口径）。
+        """
+        self._ui_theme = ui_theme
+        apply_style_sheet(self, ui_theme)
+        self._titlebar_theme = titlebar_theme
+        apply_to_widget(self, titlebar_theme)
 
     def closeEvent(self, event):
         """关窗户不等于停下载：隐藏起来，让模型继续下"""

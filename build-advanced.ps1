@@ -807,7 +807,12 @@ if ($Optimize -eq 'full') { $nuitkaArgs += '--lto=yes' }
 
 $nuitkaArgs += @(
     '--windows-console-mode=disable'
-    '--windows-uac-admin'
+    # 不再加 --windows-uac-admin（v1.1.0 起一直带着，没人写过理由）。
+    # 它唯一的作用是往 exe 清单里写 requestedExecutionLevel=requireAdministrator，
+    # 结果是每次双击启动、每次走「打开方式」，都要过一次 UAC；安装程序最后
+    # 那个「运行 NovelMaster」勾选框也会因此再弹一次。
+    # 而程序本身不需要管理员：数据全写 %APPDATA%\NovelMaster，注册表只写 HKCU
+    # （媒体键 AUMID），HKLM 只读（枚举 SAPI 音色）。去掉后双击启动不再弹 UAC。
 )
 
 if (Test-Path -LiteralPath $IconFile) {
@@ -859,6 +864,18 @@ if (Test-OptionalModule -Exe $buildPython -Module 'edge_tts') {
 }
 else {
     Write-Info '朗读在线音色: 未安装 edge-tts，本次不带（不影响系统语音朗读）'
+}
+
+# 读音纠正（多音字）「自动推断」层的可选依赖。
+# pypinyin 的注音表是运行时读的 JSON（pypinyin/phrases_dict.json、
+# pypinyin/pinyin_dict.json），所以 --include-package 之外**必须**再带
+# --include-package-data，否则冻结版一 import 就崩在找不到数据文件上。
+if (Test-OptionalModule -Exe $buildPython -Module 'pypinyin') {
+    $nuitkaArgs += @('--include-package=pypinyin', '--include-package-data=pypinyin')
+    Write-Ok '读音纠正自动推断: 已包含 pypinyin'
+}
+else {
+    Write-Info '读音纠正自动推断: 未安装 pypinyin，本次不带（用户词典与内置规则照常生效）'
 }
 
 # 全局媒体键（v1.3.9）的可选依赖：pywinrt 投影包。它们不在启动导入链上

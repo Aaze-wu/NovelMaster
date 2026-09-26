@@ -58,6 +58,7 @@ from .tts_bar import (RATE_PRESETS, TIMER_CHAPTER, TIMER_DEFAULT_MINUTES,
                       TIMER_MAX_MINUTES, TIMER_MIN_MINUTES, TIMER_OFF, TtsBar,
                       nearest_rate, quantize_volume)
 from .tts_model_dialog import TtsModelDialog
+from .tts_pron_dialog import TtsPronDialog
 from .tts_range_dialog import SpeechRangeDialog
 from .tts_voice_dialog import TtsVoiceDialog, VoiceSnapshot
 from .typography_dialog import TypographySettingsDialog
@@ -210,6 +211,8 @@ class NovelMaster(QMainWindow):
         # 音色选择窗口（懒创建；音色太多，菜单里铺不下，见 tts_voice_dialog()）
         self._tts_voice_dialog = None
         self._tts_voice_lang = ""
+        self._tts_pron_dialog = None
+        self._tts_pron_lang = ""
         # 用户选了一个「还没下载」的音色：下完自动换上
         self._tts_voice_after_download = ""
 
@@ -771,6 +774,12 @@ class NovelMaster(QMainWindow):
             "menu.tts_voice", self.open_tts_voice_dialog)
         speech_menu.addAction(self.speech_voice_action)
 
+        # 读音纠正（多音字）：字典内容的编辑窗口。这一个动作同时挂在
+        # 「朗读」和「设置」两个菜单下（QAction 可以同时属于多个菜单）
+        self.speech_pron_action = self.make_action(
+            "menu.tts_pron", self.open_tts_pron_dialog)
+        speech_menu.addAction(self.speech_pron_action)
+
         self.speech_auto_next_action = self.make_action(
             "menu.tts_auto_next", self.toggle_speech_auto_next)
         self.speech_auto_next_action.setCheckable(True)
@@ -898,6 +907,9 @@ class NovelMaster(QMainWindow):
         self.make_action("menu.shortcut_settings", self.open_shortcut_dialog,
                          "view.shortcut_config")
         settings_menu.addAction(self._actions["view.shortcut_config"])
+
+        # 读音纠正：与朗读菜单里那一份是同一个动作
+        settings_menu.addAction(self.speech_pron_action)
         
         # 语言设置（选项来自 i18n.available_languages，新增语言无需改这里）
         self.language_menu = self.add_menu(settings_menu, "menu.language")
@@ -1242,6 +1254,32 @@ class NovelMaster(QMainWindow):
         # 高亮底色取自主题（highlight / selection / accent），换主题或改字号
         # 之后要重标一次，否则还留着上一套配色
         self.apply_speech_highlight(self._tts_highlight_index)
+        # 开着的对话框也要跟着变，不能等关掉重开（只有非模态那几个会变）
+        self.restyle_open_dialogs(theme)
+
+    def restyle_open_dialogs(self, theme=None):
+        """把换好的主题重新套到已经打开的非模态对话框上。
+
+        只管有 ``apply_ui_theme()`` 的可视窗口——也就是音色、音色管理、读音
+        纠正这三个 TTS 窗口。其它对话框都是模态的，开着的时候菜单点不动、
+        主题根本换不了，不需要这条路。真出错了只记日志：换个主题不应该把
+        别的东西带崩。
+        """
+        if theme is None:
+            theme = getattr(self, "_current_theme", None)
+        titlebar_theme = self.dialog_titlebar_theme()
+        for name in ("_tts_voice_dialog", "_tts_model_dialog",
+                     "_tts_pron_dialog"):
+            dialog = getattr(self, name, None)
+            if dialog is None or not dialog.isVisible():
+                continue
+            apply_theme = getattr(dialog, "apply_ui_theme", None)
+            if apply_theme is None:
+                continue
+            try:
+                apply_theme(theme, titlebar_theme)
+            except Exception as exc:        # noqa: BLE001 - 换主题不能崩
+                self.logger.log(f"刷新对话框主题失败：{exc}", "WARN")
 
     # ---------------- 原生标题栏与主题排版 ----------------
 
@@ -3224,6 +3262,39 @@ class NovelMaster(QMainWindow):
         dialog.raise_()
         dialog.activateWindow()
 
+    def tts_pron_dialog(self):
+        """懒创建「读音纠正」窗口（非模态；界面语言变了就重建）"""
+        lang = i18n.current_language()
+        if (self._tts_pron_dialog is not None
+                and getattr(self, "_tts_pron_lang", lang) != lang):
+            self._tts_pron_dialog.shutdown()
+            self._tts_pron_dialog = None
+        if self._tts_pron_dialog is None:
+            dialog = TtsPronDialog(
+                self,
+                ui_theme=self.theme_manager.get_theme(self.current_theme_name()),
+                titlebar_theme=self.dialog_titlebar_theme())
+            dialog.changed.connect(self.on_pron_dictionary_changed)
+            self._tts_pron_dialog = dialog
+            self._tts_pron_lang = lang
+        return self._tts_pron_dialog
+
+    def open_tts_pron_dialog(self):
+        """打开「读音纠正」窗口（朗读 / 设置菜单里的入口）"""
+        dialog = self.tts_pron_dialog()
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def on_pron_dictionary_changed(self):
+        """词典改了：正在读的这一句不动，下一句起用新词典。
+
+        ``SpeechQueue`` 已经把下一句预合成好了（音色 / 语速 / 文本三者一缓存），
+        这里没有「丢掉预合成」的口子，但预合成只提前一句，影响也就是一句，
+        不值得为它加一套失效逻辑。
+        """
+        self.logger.log("读音纠正词典已更新", "DEBUG")
+
     def refresh_voice_dialog(self):
         """窗口开着的话同步一下列表（模型下载完、在线清单拉回来时用）"""
         dialog = self._tts_voice_dialog
@@ -4008,6 +4079,15 @@ class NovelMaster(QMainWindow):
                 voice_dialog.shutdown()
             except Exception as e:  # noqa: BLE001
                 self.logger.log(f"关闭音色选择窗口失败: {e}", "WARN")
+
+        # 读音纠正窗口（同样不占线程 / 文件）
+        pron_dialog = self._tts_pron_dialog
+        self._tts_pron_dialog = None
+        if pron_dialog is not None:
+            try:
+                pron_dialog.shutdown()
+            except Exception as e:  # noqa: BLE001
+                self.logger.log(f"关闭读音纠正窗口失败: {e}", "WARN")
         
         # 释放阅读器（清理 ZIP/JAR/MOBI 等解压出来的临时文件）
         self.release_current_reader()

@@ -481,3 +481,23 @@ def build_style_sheet(theme, font_size=12, extra_rules=""):
         border: 1px solid {border};
     }}
     """
+
+
+def apply_style_sheet(widget, theme, font_size=12, extra_rules=""):
+    """把主题样式表套到 ``widget`` 上，``theme`` 为空时什么都不做。
+
+    对话框的用法是同一句话写两遍：``__init__`` 里套一次，
+    主题变了再由 :meth:`apply_ui_theme` 套一次（主窗口 ``apply_theme()`` 会
+    遍历已打开的**非模态**对话框调用它）。抽成函数是为了让两处口径一致，
+    也别再各写一遍 ``if theme: widget.setStyleSheet(...)``。
+
+    只有非模态对话框需要这条路：模态对话框开着的时候菜单是点不动的，
+    主题根本换不了。
+
+    返回是否真的套上了样式表。
+    """
+    if not theme:
+        return False
+    widget.setStyleSheet(build_style_sheet(theme, font_size=font_size,
+                                          extra_rules=extra_rules))
+    return True
