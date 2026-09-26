@@ -534,6 +534,10 @@ Kokoro 约 140 MB（解压后 200 MB 上下）。只有解压后的模型目录�
 | `tts_split_max_chars` | `120` | 单句最大长度，超长的句子按标点再拆（`20` ~ `600`） |
 | `tts_bar_collapsed` | `false` | 朗读条是否收起（收起只是藏起控件，朗读照常） |
 
+> **多音字读音纠正的两个开关与自定义词典不在 `config.json` 里**，单独存
+> `%APPDATA%\NovelMaster\pronunciation.json`（首次改动时才会建），见上文
+> “多音字读音纠正”。
+
 ### 常见问题
 
 - **为什么中文只有一个 “Huihui” 音色？** 因为 Windows 默认只预装这一个中文语音。
