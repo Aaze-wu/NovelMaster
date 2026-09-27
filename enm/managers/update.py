@@ -5,11 +5,13 @@
 pre-release，这里仍会核一遍字段 —— 将来万一换成「列出全部 release」的接口，
 不至于悄悄把 beta 当成正式版推给用户。
 
-网络只用标准库 ``urllib``，套路和 :mod:`enm.managers.tts_models` 一致：
+检查走标准库 ``urllib``；安装包交给 :mod:`enm.managers.download` 下 ——
+那边会先给所有候选地址（直连 / 镜像，见 :data:`MIRROR_PREFIXES`）同时测个速，
+再按实测速度决定分几条连接并发拉（国内单连接拿 GitHub release 资产常常只有
+几十 KB/s，瓶颈在单连接上）：
 
-* 直连不通就按 :data:`MIRROR_PREFIXES` 换镜像重试（国内直连 GitHub 的
-  release 下载常年不稳）；
-* 支持 ``Range`` 断点续传，没下完的留成 ``xxx.exe.part``，下次接着下；
+* 支持 ``Range`` 断点续传，没下完的留成 ``xxx.exe.part`` 与
+  ``xxx.exe.part.json``（分段下到哪儿记在里面），下次接着下；
 * 下载可以取消，取消后 ``.part`` 也留着。
 
 还有一条与「怎么更新」一样重要的规则：**便携版不自动下载安装包**。安装程序
@@ -37,6 +39,8 @@ from PyQt5.QtCore import QObject, QProcess, pyqtSignal
 from .. import i18n
 from ..constants import APP_ROOT, DATA_PATH, VERSION
 from ..logger import logger
+from .download import (CACHED, CANCELLED, MIRROR_PREFIXES, download_file,
+                       mirror_urls)
 
 # ---------------- 更新来源 ----------------
 
@@ -47,13 +51,6 @@ REPO_URL = f"https://github.com/{REPO}"
 RELEASES_URL = f"{REPO_URL}/releases/latest"
 #: 「最新正式版」接口
 LATEST_API = f"https://api.github.com/repos/{REPO}/releases/latest"
-
-#: 直连不通时的镜像前缀。``{url}`` 会被换成完整地址。
-#: 顺序即尝试顺序：先直连，失败再走镜像。
-MIRROR_PREFIXES = (
-    "",
-    "https://gh-proxy.com/",
-)
 
 #: 自动检查的最小间隔（秒）。每次启动都联网问一遍太吵，同一天只问一次。
 AUTO_CHECK_INTERVAL = 24 * 3600
@@ -240,141 +237,63 @@ def should_auto_check(last_check):
 
 # ---------------- 下载 ----------------
 
-
-class _Cancelled(Exception):
-    """用户取消下载"""
-
-
-#: 每次读多少字节写盘
-_CHUNK = 256 * 1024
-
-#: 同一个地址失败后重试几次
-_RETRY = 3
-
-
-def _open(url, offset=0, timeout=20):
-    """发一个（可带 Range 的）GET，返回响应对象"""
-    headers = {"User-Agent": "NovelMaster", "Accept-Encoding": "identity"}
-    if offset:
-        headers["Range"] = f"bytes={offset}-"
-    return urllib.request.urlopen(urllib.request.Request(url, headers=headers),
-                                  timeout=timeout)
+#: 给界面看的状态文案：:mod:`enm.managers.download` 只递代码，这里翻成人话
+_STATUS_TEXTS = {
+    "probing": ("update.probing", "正在测速，挑个最快的下载地址…"),
+    "connections": ("update.connections", "正在用 {count} 个连接下载…"),
+    "resume": ("update.resume", "接着上次下到的地方继续…"),
+    "no_segments": ("update.no_segments",
+                    "这个地址不支持分段下载，已改用单连接。"),
+    "mirror": ("update.mirror", "直连下载失败，换镜像重试…"),
+    "proxy_off": ("update.proxy_off", "代理连不通，已丢掉代理直连重试…"),
+}
 
 
-def mirror_urls(url, custom=""):
-    """一个地址的全部候选：直连 → 内置镜像 → 用户自定义的镜像前缀
-
-    用户填的前缀排在最后：内置的能用就不必麻烦他填的那个（自定义多半是
-    某个专门的加速服务，作为最后的兜底更合适）。
-    """
-    prefixes = list(MIRROR_PREFIXES)
-    custom = str(custom or "").strip()
-    if custom and custom not in prefixes:
-        prefixes.append(custom)
-
-    seen = set()
-    urls = []
-    for prefix in prefixes:
-        candidate = prefix + url
-        if candidate not in seen:
-            seen.add(candidate)
-            urls.append(candidate)
-    return urls
+def _status_text(code, **kwargs):
+    """状态代码 → 给用户看的话；认不出来的代码返回空串"""
+    key, default = _STATUS_TEXTS.get(code, ("", ""))
+    if not key:
+        return ""
+    return i18n.t(key, default=default, **kwargs)
 
 
-def _fetch(url, part, progress, cancel, total_hint=0):
-    """从 ``url`` 续传到 ``part``，返回 ``(已下字节, 总字节)``"""
-    done = part.stat().st_size if part.exists() else 0
-    if total_hint and done > total_hint:
-        # 上次下的是别的文件 / 下坏了，重来
-        part.unlink()
-        done = 0
-
-    response = _open(url, done)
-    resumed = response.status == 206
-    if not resumed and done:
-        logger.log("服务器不支持断点续传，从头下载", "WARN")
-        done = 0
-
-    length = int(response.headers.get("Content-Length") or 0)
-    total = done + length if length else total_hint
-    mode = "ab" if resumed else "wb"
-    if not resumed:
-        part.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(str(part), mode) as handle:
-        while True:
-            if cancel is not None and cancel():
-                raise _Cancelled()
-            chunk = response.read(_CHUNK)
-            if not chunk:
-                break
-            handle.write(chunk)
-            done += len(chunk)
-            if progress is not None:
-                progress(done, total)
-    response.close()
-    return done, total
+def _download_status(status):
+    """把界面的 ``status(文案)`` 包成下载引擎要的 ``status(代码, **参数)``"""
+    if status is None:
+        return None
+    return lambda code, **kwargs: status(_status_text(code, **kwargs))
 
 
 def download_installer(url, dest, custom_mirror="", expected=0, progress=None,
                        status=None, cancel=None):
     """把安装包下到 ``dest``，返回 ``(是否成功, 说明文字, 文件路径)``。
 
-    :param expected: GitHub 报的文件大小，用来认出「下完了但对不上」的残缺
-        文件；服务器给了 ``Content-Length`` 时以服务器为准
+    真正下载的是 :func:`enm.managers.download.download_file`（竞速挑地址 +
+    多连接分段 + 分段续传）；这里只把它给出的结果翻成界面看的话。
+
+    :param expected: GitHub 报的文件大小，用来认出「下完了但对不上」的残缺文件
     :param progress: ``progress(已下字节, 总字节)``（总字节未知时是 0）
-    :param status: ``status(说明文字)``，用于「换镜像重试」这类进度之外的提示
+    :param status: ``status(说明文字)``，用于「测速 / 换地址」这类进度之外的提示
     :param cancel: ``cancel()`` 返回 ``True`` 就中断（``.part`` 留着续传）
     """
-    dest = Path(dest)
-    part = dest.parent / (dest.name + ".part")
-    try:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        logger.log(f"创建下载目录失败: {exc}", "ERROR")
-        return False, i18n.t("update.down_failed",
-                             default="下载失败：{error}",
-                             error=exc), part
+    result = download_file(url, dest,
+                           custom_mirror=custom_mirror,
+                           expected=expected,
+                           progress=progress,
+                           status=_download_status(status),
+                           cancel=cancel)
 
-    # 上次下完但用户点了「稍后」：文件还在就直接用
-    if dest.exists() and (not expected or dest.stat().st_size == expected):
-        return True, i18n.t("update.down_cached",
-                            default="安装包已经下载好了。"), dest
-
-    last_error = ""
-    for index, candidate in enumerate(mirror_urls(url, custom_mirror)):
-        if index:
-            if status is not None:
-                status(i18n.t("update.mirror",
-                              default="直连下载失败，换镜像重试…"))
-            logger.log(f"改用镜像下载安装包: {candidate[:80]}…", "WARN")
-        for attempt in range(_RETRY):
-            try:
-                done, total = _fetch(candidate, part, progress, cancel, expected)
-                if total and done < total:
-                    raise IOError(f"只下到 {done}/{total} 字节")
-                if expected and part.stat().st_size != expected:
-                    raise IOError(f"文件大小对不上（{part.stat().st_size} "
-                                  f"!= {expected}）")
-                part.replace(dest)
-                logger.log(f"安装包下载完成: {dest.name}（"
-                           f"{done / 1048576.0:.1f} MB）", "INFO")
-                return True, i18n.t("update.down_done",
-                                    default="安装包下载完成。"), dest
-            except _Cancelled:
-                logger.log("用户取消下载安装包", "INFO")
-                return False, i18n.t("update.cancelled",
-                                     default="已取消下载。"), part
-            except Exception as exc:  # noqa: BLE001 - 换地址 / 重试
-                last_error = str(exc)
-                logger.log(f"下载安装包出错（第 {attempt + 1} 次）: {exc}", "WARN")
-                if attempt + 1 < _RETRY:
-                    time.sleep(0.5 * (attempt + 1))
-
-    return False, i18n.t("update.down_failed",
+    if result.ok and result.reason == CACHED:
+        message = i18n.t("update.down_cached", default="安装包已经下载好了。")
+    elif result.reason == CANCELLED:
+        message = i18n.t("update.cancelled", default="已取消下载。")
+    elif result.ok:
+        message = i18n.t("update.down_done", default="安装包下载完成。")
+    else:
+        message = i18n.t("update.down_failed",
                          default="下载失败：{error}",
-                         error=last_error), part
+                         error=result.error or "未知错误")
+    return result.ok, message, result.path
 
 
 # ---------------- 启动安装程序 ----------------
