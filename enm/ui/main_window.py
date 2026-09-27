@@ -891,6 +891,12 @@ class NovelMaster(QMainWindow):
         """切换手柄震动反馈（命令生效时短震一下）"""
         self.config_manager.set("gamepad_rumble", bool(checked))
         self.logger.log(f"手柄震动反馈: {'开启' if checked else '关闭'}")
+        if not checked:
+            # 关掉时顺手把正在震的也停掉：碰到「手柄一直震」的用户第一反应
+            # 就是来这里关，不能点了关还在震
+            controller = getattr(self, "_gamepad", None)
+            if controller is not None:
+                controller.stop_rumble()
 
     def _schedule_gamepad_notice(self):
         """插着手柄却没开这项功能时，问一次要不要打开

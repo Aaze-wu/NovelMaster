@@ -38,6 +38,11 @@ Windows 8 以上**系统自带**的（Win10 / Win11 一定在），所以这块�
 5. 没有手柄时不要按 60 Hz 空转：找不到手柄就退到 2 Hz 慢慢问，
    插上之后再升回 60 Hz（见 :data:`POLL_IDLE` / :data:`POLL_ACTIVE`）。
 6. 退出时一定要把震动关掉，否则最后一下震动会一直转到拔电源。
+7. **「关震动」这一下必须写得住**：震动是「记住最后一次设置」，但第三方手柄
+   的 XInput 模拟层会吞掉紧跟在脉冲之后的那次 0（也可能因为那一刻跑到别的
+   槽位上而写丢），马达就会一直转到下次按键 —— 也就是用户报上来的
+   「手柄一直震，再按一下才停」。所以关震动要**反复写、四个槽位都写**，
+   还要看 ``XInputSetState`` 的返回码（见 :data:`RUMBLE_RELEASE_MS`）。
 """
 
 import ctypes
@@ -109,6 +114,21 @@ POLL_IDLE = 0.5
 # 震动反馈：很短的一下，表示「命令收到了」
 RUMBLE_MS = 70
 RUMBLE_STRENGTH = 0.32
+#: 单次震动的时间上限（调用方传得再大也砍到这里，防呆）
+RUMBLE_MAX_MS = 500
+# 脉冲结束之后还要**反复**写 0 多久 —— 这一段叫「消磁窗口」。
+# 为什么要反复写：XInput 的震动是「记住最后一次设置」，理论上写一次 0 就够，
+# 但**第三方手柄**（8BitDo / 北通 / 飞智这类走 XInput 模拟层的）会吞掉紧跟在
+# 脉冲后面的那一次 0，于是马达一直转到「下一次有非 0 写入再写 0」才停 —— 正是
+# 用户报上来的「手柄一直震，再按一下手柄才停」。窗口里多写几次、四个槽位都写，
+# 被吞掉几次也无所谓。
+RUMBLE_RELEASE_MS = 600
+#: 消磁窗口里每隔多久写一遍 0（600 ms / 100 ms ≈ 6 次）
+RUMBLE_RELEASE_INTERVAL = 0.1
+#: 消磁窗口**至少**要写够几次 0。界面在忙着做耗时动作（开朗读、换章）时
+#: 工作线程可能被饿上好几秒，光靠「窗口内才写」会一次都没写就被跳过，
+#: 所以次数是硬下限，跟时间窗口哪个宽就按哪个来。
+RUMBLE_RELEASE_WRITES = 6
 
 #: 候选 DLL（1.4 支持手柄插拔热插拔，9_1_0 只认老版驱动，放最后兜底）
 DLL_NAMES = ("XInput1_4.dll", "XInput1_3.dll", "XInput9_1_0.dll")
@@ -159,16 +179,20 @@ class _Api:
                         int(state.bRightTrigger), int(state.sThumbLY))
 
     def set_vibration(self, slot, strength):
-        """设震动强度（0~1；没有 ``XInputSetState`` 时什么都不做）"""
+        """设震动强度（0~1）；返回 XInput 的错误码（``None`` = 这个 DLL 没这接口）
+
+        返回码要往外传：``XInputSetState`` 在「手柄刚拔掉」「槽位没手柄」等情况
+        下会失败，调用方得知道这一下 0 到底写进去没有 —— 写丢了马达就会一直转。
+        """
         if self._set_state is None:
-            return False
+            return None
         value = int(max(0.0, min(1.0, strength)) * 65535)
         vibration = _XInputVibration(value, value)
         try:
-            self._set_state(slot, ctypes.byref(vibration))
-        except OSError:
-            return False
-        return True
+            return int(self._set_state(slot, ctypes.byref(vibration)))
+        except OSError as e:
+            logger.log(f"XInputSetState 调用失败（槽位 {slot}）: {e}", "WARN")
+            return ERROR_DEVICE_NOT_CONNECTED
 
     def any_connected(self):
         """有没有任何一台手柄连着"""
@@ -302,6 +326,12 @@ class GamepadController(QObject):
         self._slot = -1
         self._rumble_until = 0.0
         self._rumble_strength = 0.0
+        #: 消磁窗口的截止时刻（脉冲结束后还要反复写一会儿 0，见 RUMBLE_RELEASE_MS）
+        self._rumble_release_until = 0.0
+        #: 消磁窗口里上一次写 0 的时刻（用来限流，不用每帧都写）
+        self._last_release_write = 0.0
+        #: 本次消磁已经写了几次 0（脉冲时归零，写够 RUMBLE_RELEASE_WRITES 为止）
+        self._release_writes = 0
 
     # ---------------- 生命周期 ----------------
 
@@ -350,9 +380,25 @@ class GamepadController(QObject):
         这里只记下「震到什么时候」，真正调 DLL 的是轮询线程：GUI 线程里
         别做这种小动作，免得手柄突然被拔掉时卡住界面。
         """
+        ms = max(0.0, min(float(RUMBLE_MAX_MS), float(ms)))
         with self._lock:
+            now = time.monotonic()
             self._rumble_strength = max(0.0, min(1.0, float(strength)))
-            self._rumble_until = time.monotonic() + max(0.0, float(ms)) / 1000.0
+            self._rumble_until = now + ms / 1000.0
+            # 消磁窗口必须**盖住**脉冲之后的一段：脉冲本身只有几十毫秒，
+            # 紧跟着写的那一次 0 有可能被手柄的 XInput 模拟层吞掉
+            self._rumble_release_until = (self._rumble_until
+                                          + RUMBLE_RELEASE_MS / 1000.0)
+            self._last_release_write = 0.0
+            self._release_writes = 0
+
+    def stop_rumble(self):
+        """立刻停下正在震的这一下（并进入消磁窗口）
+
+        留给「手柄一直震」的手动出口：设置里把「手柄震动反馈」取消勾选就会
+        调到这里，比「再按一下手柄」直接些。
+        """
+        self._clear_vibration()
 
     # ---------------- 轮询线程 ----------------
 
@@ -377,6 +423,11 @@ class GamepadController(QObject):
                     previous_triggers = (False, False)
                     last_held = ""
                     scroll_carry = 0.0
+                    # 拔掉的那一帧一定要补写一次「关震动」：XInput 只会记住最后一次
+                    # 设置，漏掉这一下有概率让马达一直转到下次按键（就是这么被用户
+                    # 报上来的）。消磁窗口会把四个槽位都写一遍 0，插/拔两个方向都
+                    # 顺手清一次，免得手柄带着上一次的残留状态回来。
+                    self._clear_vibration()
                     self._announce(connected)
                 if not connected:
                     self._stop_event.wait(POLL_IDLE)
@@ -479,30 +530,64 @@ class GamepadController(QObject):
         return carry
 
     def _update_rumble(self, slot, now, rumble_on):
-        """按需开关震动（返回这一帧结束后震动是不是开着的）"""
+        """按需开关震动（返回这一帧结束后震动是不是开着的）
+
+        关震动时是**反复写** 0（消磁窗口，见 :data:`RUMBLE_RELEASE_MS`），而且
+        四个槽位都写：XInput 只「记住最后一次设置」，一次 0 被第三方手柄吞掉、
+        或者那一帧恰好跑到别的槽位上，马达就会一直转到下次按键才停。
+        """
         with self._lock:
             strength = self._rumble_strength
             until = self._rumble_until
+            release = self._rumble_release_until
+            writes = self._release_writes
         if strength > 0 and now < until:
             self._api.set_vibration(slot, strength)
             return True
+        if now < release or writes < RUMBLE_RELEASE_WRITES:
+            # 消磁窗口：每 RUMBLE_RELEASE_INTERVAL 写一遍 0；即便窗口已经过完，
+            # 只要还没写够 RUMBLE_RELEASE_WRITES 次就继续补（工作线程被饿住时
+            # 靠这一条兜底）
+            if now - self._last_release_write >= RUMBLE_RELEASE_INTERVAL:
+                with self._lock:
+                    self._last_release_write = now
+                    self._release_writes = writes + 1
+                self._write_off_all()
+            return True
         if rumble_on:
-            self._api.set_vibration(slot, 0.0)
+            self._write_off_all()
         return False
 
-    def _clear_vibration(self):
-        """把两台马达都关掉（退出 / 拔手柄时调）"""
+    def _write_off_all(self):
+        """给四个槽位都写一遍 0（只关震动，不动「震到什么时候」的记录）
+
+        写 0 到没有手柄的槽位是无害的（``XInputSetState`` 返回 1167 而已），
+        但能兜住「脉冲和 0 写到了不同槽位」这种把马达留在震动上的情况。
+        """
         api = self._api
         if api is None:
             return
         for slot in range(MAX_SLOTS):
             try:
                 api.set_vibration(slot, 0.0)
-            except OSError:
+            except OSError:  # 理论上 set_vibration 自己吞了，这里再兜一层
                 pass
+
+    def _clear_vibration(self):
+        """把马达关掉并清掉「正在震」的记录（退出 / 拔手柄 / 手动停时调）
+
+        注意这里**不只是「写一次 0」**：写完之后还要把消磁窗口重新武装一遍
+        （见 :data:`RUMBLE_RELEASE_MS`），因为要压住的恰恰就是「一次 0 被手柄
+        吞掉」这种情况 —— 所有「停震」路径都走这一个函数，语义就不会分叉。
+        """
+        self._write_off_all()
         with self._lock:
+            now = time.monotonic()
             self._rumble_strength = 0.0
             self._rumble_until = 0.0
+            self._rumble_release_until = now + RUMBLE_RELEASE_MS / 1000.0
+            self._last_release_write = now
+            self._release_writes = 0
 
     def _announce(self, connected):
         """手柄插拔时写一条日志并通知主窗口"""
