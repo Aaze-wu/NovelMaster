@@ -11,16 +11,23 @@
   ``eventFilter`` 派发），这样方向键、翻页键这类单键不会在章节列表、
   输入框等控件里抢占按键。
 
-每个动作有两套互不影响的绑定槽：
+每个动作有三套互不影响的绑定槽：
 
 * **键盘**：``QKeySequence`` 文本（``Ctrl+O``、``PgUp``…），存在 ``shortcuts`` 字段；
 * **鼠标**：鼠标侧键（后退 / 前进）与中键，用记号表示（``MouseBack`` /
-  ``MouseForward`` / ``MouseMiddle``），存在 ``shortcuts_mouse`` 字段。
+  ``MouseForward`` / ``MouseMiddle``），存在 ``shortcuts_mouse`` 字段；
+* **手柄**：XInput 手柄按键，同样用记号表示（``PadA`` / ``PadLB`` /
+  ``PadUp``…），存在 ``shortcuts_pad`` 字段。
 
-``QKeySequence`` 表达不了鼠标键，所以鼠标记号由 :func:`normalise_sequence`
-原样保留（:func:`key_sequence` 对它们返回空序列），按键名到 ``Qt.MouseButton``
-的换算见 :func:`mouse_button_of`。两套槽分别做冲突检查：同一个键不能绑两个动作，
+``QKeySequence`` 表达不了鼠标键与手柄键，所以这两类记号由
+:func:`normalise_sequence` 原样保留（:func:`key_sequence` 对它们返回空序列），
+按键名到 ``Qt.MouseButton`` 的换算见 :func:`mouse_button_of`；手柄记号到
+XInput 按键位的换算在 :mod:`enm.managers.gamepad` 里（本模块只负责记号与
+配置，不碰 DLL）。三套槽分别做冲突检查：同一个键不能绑两个动作，
 但键盘绑 ``PgUp`` 与鼠标绑 ``MouseBack`` 属于不同输入，不算冲突。
+
+手柄的「左摇杆上下滚动」是固定行为，不走这套绑定（见
+:mod:`enm.managers.gamepad`），因为它像鼠标滚轮一样是模拟量、不是按一下的命令。
 
 绑定值持久化在 ``config.json`` 里，只保存与默认值不同的项；
 用户主动清空某个绑定（空字符串）同样会被保存下来。
@@ -72,6 +79,75 @@ MOUSE_LABELS = {
     MOUSE_FORWARD: "鼠标前进键",
     MOUSE_MIDDLE: "鼠标中键",
 }
+
+# 手柄记号（XInput）：思路和鼠标记号一样，QKeySequence 表达不了的东西自己定名。
+# 取名按 Xbox 手柄的印字来（A / B / X / Y / LB / RB / LT / RT），
+# 别的牌子印的可能不同（NS 手柄是 B / A / Y / X），所以显示名放语言文件里，
+# 由用户自己对着手柄找位置。
+PAD_A = "PadA"
+PAD_B = "PadB"
+PAD_X = "PadX"
+PAD_Y = "PadY"
+PAD_LB = "PadLB"          # 左肩键
+PAD_RB = "PadRB"          # 右肩键
+PAD_LT = "PadLT"          # 左扳机（模拟量，按阈值当按键用）
+PAD_RT = "PadRT"          # 右扳机
+PAD_UP = "PadUp"          # 十字键上
+PAD_DOWN = "PadDown"
+PAD_LEFT = "PadLeft"
+PAD_RIGHT = "PadRight"
+PAD_LSTICK = "PadLStick"  # 左摇杆按下（摇杆本身的滚动是固定行为，不在这里绑）
+PAD_RSTICK = "PadRStick"
+PAD_START = "PadStart"
+PAD_BACK = "PadBack"      # Xbox 上是 View 键
+PAD_GUIDE = "PadGuide"    # Xbox 键，只有序号导出的 XInputGetStateEx 报得出来
+
+PAD_TOKENS = (PAD_A, PAD_B, PAD_X, PAD_Y, PAD_LB, PAD_RB, PAD_LT, PAD_RT,
+              PAD_UP, PAD_DOWN, PAD_LEFT, PAD_RIGHT,
+              PAD_LSTICK, PAD_RSTICK, PAD_START, PAD_BACK, PAD_GUIDE)
+
+PAD_LABEL_KEYS = {
+    PAD_A: "shortcut.pad.a",
+    PAD_B: "shortcut.pad.b",
+    PAD_X: "shortcut.pad.x",
+    PAD_Y: "shortcut.pad.y",
+    PAD_LB: "shortcut.pad.lb",
+    PAD_RB: "shortcut.pad.rb",
+    PAD_LT: "shortcut.pad.lt",
+    PAD_RT: "shortcut.pad.rt",
+    PAD_UP: "shortcut.pad.up",
+    PAD_DOWN: "shortcut.pad.down",
+    PAD_LEFT: "shortcut.pad.left",
+    PAD_RIGHT: "shortcut.pad.right",
+    PAD_LSTICK: "shortcut.pad.lstick",
+    PAD_RSTICK: "shortcut.pad.rstick",
+    PAD_START: "shortcut.pad.start",
+    PAD_BACK: "shortcut.pad.back",
+    PAD_GUIDE: "shortcut.pad.guide",
+}
+PAD_LABELS = {
+    PAD_A: "手柄 A 键",
+    PAD_B: "手柄 B 键",
+    PAD_X: "手柄 X 键",
+    PAD_Y: "手柄 Y 键",
+    PAD_LB: "手柄左肩键 LB",
+    PAD_RB: "手柄右肩键 RB",
+    PAD_LT: "手柄左扳机 LT",
+    PAD_RT: "手柄右扳机 RT",
+    PAD_UP: "十字键上",
+    PAD_DOWN: "十字键下",
+    PAD_LEFT: "十字键左",
+    PAD_RIGHT: "十字键右",
+    PAD_LSTICK: "左摇杆按下",
+    PAD_RSTICK: "右摇杆按下",
+    PAD_START: "手柄 Start 键",
+    PAD_BACK: "手柄 Back 键",
+    PAD_GUIDE: "手柄 Xbox 键",
+}
+
+# 全部「不是键盘」的记号。解析绑定值时要一起认，判别是不是记号用 is_token()。
+NON_KEY_TOKENS = MOUSE_TOKENS + PAD_TOKENS
+
 # 显示名与说明都放在语言文件里，这里的 label / hint 只作为缺键时的兜底。
 # 一个快捷键定义：动作 id、显示名、分组、默认按键、生效范围、说明
 ShortcutDef = namedtuple(
@@ -167,10 +243,44 @@ DEFAULT_MOUSE_BINDINGS = {
     "nav.next_chapter": MOUSE_FORWARD,
 }
 
+# 默认的手柄绑定（按 Xbox 手柄的布局来，按住不放会连发的键详见
+# enm.managers.gamepad.REPEAT_TOKENS）：
+#
+# * A / B —— 朗读开始暂停、停止；
+# * 十字键上下 —— 上一句 / 下一句（听的时候想回退最顺手）；
+# * 十字键左右 —— 跳到章首 / 章尾；
+# * LB / RB —— 上一章 / 下一章（肩键当翻页键，同手机上的习惯）；
+# * LT / RT —— 语速减慢 / 加快（按住会连发，可以一直扫到想要的语速）；
+# * 左摇杆按下 —— 显示 / 隐藏章节列表；
+# * X —— 整章朗读（不弹窗，适合躺在沙发上按）。
+#
+# Y、右摇杆、Start、Back、Xbox 键默认不绑：开了手柄就能用是底线，但默认把手柄
+# 全部键位都占满反而让人不敢改。想用的动作自己去快捷键设置里绑（「转到章节」
+# 「打开文件」这类会弹窗的动作不适合绑手柄——手柄没法操作对话框上的控件）。
+DEFAULT_PAD_BINDINGS = {
+    "tts.play_pause": PAD_A,
+    "tts.stop": PAD_B,
+    "tts.prev_sentence": PAD_UP,
+    "tts.next_sentence": PAD_DOWN,
+    "nav.chapter_start": PAD_LEFT,
+    "nav.chapter_end": PAD_RIGHT,
+    "nav.prev_chapter": PAD_LB,
+    "nav.next_chapter": PAD_RB,
+    "tts.rate_down": PAD_LT,
+    "tts.rate_up": PAD_RT,
+    "tts.range_chapter": PAD_X,
+    "view.toggle_sidebar": PAD_LSTICK,
+}
+
 
 def mouse_default_of(action_id):
     """动作的默认鼠标键绑定（没有默认值时返回空字符串）"""
     return DEFAULT_MOUSE_BINDINGS.get(action_id, "")
+
+
+def pad_default_of(action_id):
+    """动作的默认手柄绑定（没有默认值时返回空字符串）"""
+    return DEFAULT_PAD_BINDINGS.get(action_id, "")
 
 
 def action_label_key(action_id):
@@ -226,6 +336,12 @@ def invalid_mouse_defaults():
             if action_id not in DEFS_BY_ID or not mouse_token(token)]
 
 
+def invalid_pad_defaults():
+    """返回默认手柄绑定写法不对的动作 id（自检用，判定标准同上）"""
+    return [action_id for action_id, token in DEFAULT_PAD_BINDINGS.items()
+            if action_id not in DEFS_BY_ID or not pad_token(token)]
+
+
 def check_defaults():
     """启动时自检默认按键，有问题就写日志提醒"""
     invalid = invalid_definitions()
@@ -234,7 +350,15 @@ def check_defaults():
     invalid_mouse = invalid_mouse_defaults()
     if invalid_mouse:
         logger.warning(f"以下动作的默认鼠标键无法解析，请检查记号拼写: {invalid_mouse}")
+    invalid_pad = invalid_pad_defaults()
+    if invalid_pad:
+        logger.warning(f"以下动作的默认手柄键无法解析，请检查记号拼写: {invalid_pad}")
     return invalid
+
+
+def is_token(value):
+    """这个绑定值是不是「非键盘」记号（鼠标或手柄）"""
+    return normalise_sequence(value) in NON_KEY_TOKENS
 
 
 def mouse_token(value):
@@ -272,11 +396,32 @@ def mouse_choices():
         (token, mouse_display(token)) for token in MOUSE_TOKENS]
 
 
+def pad_token(value):
+    """把绑定值规范成手柄记号（不是手柄键时返回空字符串）"""
+    text = normalise_sequence(value)
+    return text if text in PAD_TOKENS else ""
+
+
+def pad_display(value):
+    """手柄绑定的可读文本（未绑定时给出「未绑定」/``Unbound``）"""
+    token = pad_token(value)
+    if not token:
+        return i18n.t("common.unbound", default="未绑定")
+    return i18n.t(PAD_LABEL_KEYS[token], default=PAD_LABELS[token])
+
+
+def pad_choices():
+    """手柄下拉框的选项：``[(记号, 显示名), ...]``，首项是「未绑定」"""
+    return [("", i18n.t("common.unbound", default="未绑定"))] + [
+        (token, pad_display(token)) for token in PAD_TOKENS]
+
+
 def normalise_sequence(value):
     """把绑定值统一成可比较、可持久化的文本（如 ``Ctrl+O``、``MouseBack``）
 
     传入 ``None`` / 空字符串表示「未绑定」，统一返回空字符串；
-    鼠标记号原样保留（它不是键序列，交给 ``QKeySequence`` 会被解析成空序列）。
+    鼠标 / 手柄记号原样保留（它们不是键序列，交给 ``QKeySequence`` 会被
+    解析成空序列，那样绑定就悄悄丢了）。
     """
     if value is None:
         return ""
@@ -285,24 +430,26 @@ def normalise_sequence(value):
     text = str(value).strip()
     if not text:
         return ""
-    if text in MOUSE_TOKENS:
+    if text in NON_KEY_TOKENS:
         return text
     return QKeySequence(text).toString(QKeySequence.PortableText)
 
 
 def key_sequence(value):
-    """按键文本 → ``QKeySequence``（未绑定或鼠标键时返回空序列）"""
+    """按键文本 → ``QKeySequence``（未绑定、鼠标键或手柄键时返回空序列）"""
     text = normalise_sequence(value)
-    if not text or text in MOUSE_TOKENS:
+    if not text or text in NON_KEY_TOKENS:
         return QKeySequence()
     return QKeySequence(text)
 
 
 def display_text(value):
-    """给界面显示的绑定文本（键盘是键名，鼠标是本地化的键位名）"""
+    """给界面显示的绑定文本（键盘是键名，鼠标 / 手柄是本地化的键位名）"""
     text = normalise_sequence(value)
     if not text:
         return i18n.t("common.unbound", default="未绑定")
+    if text in PAD_TOKENS:
+        return pad_display(text)
     return mouse_display(text) if text in MOUSE_TOKENS else text
 
 
@@ -316,10 +463,11 @@ def event_key_sequence(event):
 
 
 class ShortcutManager:
-    """快捷键绑定的读取、修改与持久化（键盘与鼠标两套槽）"""
+    """快捷键绑定的读取、修改与持久化（键盘、鼠标与手柄三套槽）"""
 
     CONFIG_KEY = "shortcuts"
     MOUSE_CONFIG_KEY = "shortcuts_mouse"
+    PAD_CONFIG_KEY = "shortcuts_pad"
 
     def __init__(self, config_manager):
         self.config_manager = config_manager
@@ -327,6 +475,8 @@ class ShortcutManager:
         self.bindings = {}
         #: 动作 id -> 鼠标记号
         self.mouse_bindings = {}
+        #: 动作 id -> 手柄记号
+        self.pad_bindings = {}
         check_defaults()
         self.reload()
 
@@ -349,6 +499,14 @@ class ShortcutManager:
                 stored_mouse.get(action_id, mouse_default_of(action_id)))
             for action_id in DEFAULT_SHORTCUTS
         }
+        stored_pad = self.config_manager.get(self.PAD_CONFIG_KEY, {})
+        if not isinstance(stored_pad, dict):
+            stored_pad = {}
+        self.pad_bindings = {
+            action_id: normalise_sequence(
+                stored_pad.get(action_id, pad_default_of(action_id)))
+            for action_id in DEFAULT_SHORTCUTS
+        }
 
     def get(self, action_id):
         """当前绑定（未绑定时返回空字符串）"""
@@ -358,6 +516,10 @@ class ShortcutManager:
         """当前的鼠标键绑定（未绑定时返回空字符串）"""
         return self.mouse_bindings.get(action_id, "")
 
+    def get_pad(self, action_id):
+        """当前的手柄绑定（未绑定时返回空字符串）"""
+        return self.pad_bindings.get(action_id, "")
+
     def default_of(self, action_id):
         """默认绑定"""
         return DEFAULT_SHORTCUTS.get(action_id, "")
@@ -365,6 +527,10 @@ class ShortcutManager:
     def mouse_default_of(self, action_id):
         """默认鼠标键绑定"""
         return mouse_default_of(action_id)
+
+    def pad_default_of(self, action_id):
+        """默认手柄绑定"""
+        return pad_default_of(action_id)
 
     def is_default(self, action_id):
         """当前绑定是否就是默认值"""
@@ -374,6 +540,10 @@ class ShortcutManager:
         """当前鼠标键绑定是否就是默认值"""
         return self.get_mouse(action_id) == self.mouse_default_of(action_id)
 
+    def is_pad_default(self, action_id):
+        """当前手柄绑定是否就是默认值"""
+        return self.get_pad(action_id) == self.pad_default_of(action_id)
+
     def display(self, action_id):
         """当前绑定（键盘）的可读文本"""
         return display_text(self.get(action_id))
@@ -382,10 +552,15 @@ class ShortcutManager:
         """当前鼠标键绑定的可读文本"""
         return mouse_display(self.get_mouse(action_id))
 
+    def display_pad(self, action_id):
+        """当前手柄绑定的可读文本"""
+        return pad_display(self.get_pad(action_id))
+
     def display_all(self, action_id):
-        """键盘 + 鼠标合起来的可读文本（菜单 / 按钮的提示文本用）"""
+        """键盘 + 鼠标 + 手柄合起来的可读文本（菜单 / 按钮的提示文本用）"""
         parts = [normalise_sequence(self.get(action_id)),
-                 normalise_sequence(self.get_mouse(action_id))]
+                 normalise_sequence(self.get_mouse(action_id)),
+                 normalise_sequence(self.get_pad(action_id))]
         joined = " / ".join(display_text(part) for part in parts if part)
         return joined or display_text("")
 
@@ -400,6 +575,12 @@ class ShortcutManager:
                  else self.get_mouse(action_id))
         return mouse_token(value)
 
+    def pad_token_of(self, action_id, use_default=False):
+        """绑定对应的手柄记号（没绑手柄键时返回空字符串）"""
+        value = (self.pad_default_of(action_id) if use_default
+                 else self.get_pad(action_id))
+        return pad_token(value)
+
     # ---------------- 修改 ----------------
 
     def set(self, action_id, value):
@@ -412,6 +593,11 @@ class ShortcutManager:
         if action_id in DEFAULT_SHORTCUTS:
             self.mouse_bindings[action_id] = normalise_sequence(value)
 
+    def set_pad(self, action_id, value):
+        """修改单个手柄绑定（只改内存，需调用 :meth:`save` 落盘）"""
+        if action_id in DEFAULT_SHORTCUTS:
+            self.pad_bindings[action_id] = normalise_sequence(value)
+
     def reset(self, action_id):
         """恢复单个动作的默认绑定"""
         self.set(action_id, self.default_of(action_id))
@@ -420,24 +606,33 @@ class ShortcutManager:
         """恢复单个动作的默认鼠标键绑定"""
         self.set_mouse(action_id, self.mouse_default_of(action_id))
 
+    def reset_pad(self, action_id):
+        """恢复单个动作的默认手柄绑定"""
+        self.set_pad(action_id, self.pad_default_of(action_id))
+
     def reset_all(self):
-        """恢复全部默认绑定（键盘与鼠标一起）"""
+        """恢复全部默认绑定（键盘、鼠标与手柄一起）"""
         self.bindings = dict(DEFAULT_SHORTCUTS)
         self.mouse_bindings = {action_id: mouse_default_of(action_id)
                                for action_id in DEFAULT_SHORTCUTS}
+        self.pad_bindings = {action_id: pad_default_of(action_id)
+                             for action_id in DEFAULT_SHORTCUTS}
 
-    def apply(self, bindings, mouse_bindings=None):
+    def apply(self, bindings, mouse_bindings=None, pad_bindings=None):
         """一次性套用一组绑定（改键界面点「确定」时调用）
 
-        ``mouse_bindings`` 为 ``None`` 时不动鼠标槽（只改键盘的场景）。
+        ``mouse_bindings`` / ``pad_bindings`` 为 ``None`` 时不动那一套槽
+        （只改键盘的场景）。
         """
         for action_id, value in bindings.items():
             self.set(action_id, value)
         for action_id, value in (mouse_bindings or {}).items():
             self.set_mouse(action_id, value)
+        for action_id, value in (pad_bindings or {}).items():
+            self.set_pad(action_id, value)
 
     def save(self):
-        """写回配置：两套槽都只保存与默认值不同的项（含被清空的空绑定）"""
+        """写回配置：三套槽都只保存与默认值不同的项（含被清空的空绑定）"""
         stored = {
             action_id: value
             for action_id, value in self.bindings.items()
@@ -450,6 +645,12 @@ class ShortcutManager:
             if value != self.mouse_default_of(action_id)
         }
         self.config_manager.set(self.MOUSE_CONFIG_KEY, stored_mouse)
+        stored_pad = {
+            action_id: value
+            for action_id, value in self.pad_bindings.items()
+            if value != self.pad_default_of(action_id)
+        }
+        self.config_manager.set(self.PAD_CONFIG_KEY, stored_pad)
 
     # ---------------- 冲突检查 ----------------
 
@@ -463,6 +664,11 @@ class ShortcutManager:
         source = self.mouse_bindings if bindings is None else bindings
         return _find_conflict(source, normalise_sequence(value), exclude)
 
+    def find_pad_conflict(self, value, exclude=None, bindings=None):
+        """找出与手柄键 ``value`` 重复的动作 id（同样与另外两套分开判定）"""
+        source = self.pad_bindings if bindings is None else bindings
+        return _find_conflict(source, normalise_sequence(value), exclude)
+
     def conflict_groups(self, bindings=None):
         """按按键归并冲突，返回 ``[(按键, [动作 id, ...]), ...]``"""
         source = self.bindings if bindings is None else bindings
@@ -471,6 +677,11 @@ class ShortcutManager:
     def mouse_conflict_groups(self, bindings=None):
         """按鼠标键归并冲突（形式同 :meth:`conflict_groups`）"""
         source = self.mouse_bindings if bindings is None else bindings
+        return _conflict_groups(source)
+
+    def pad_conflict_groups(self, bindings=None):
+        """按手柄键归并冲突（形式同 :meth:`conflict_groups`）"""
+        source = self.pad_bindings if bindings is None else bindings
         return _conflict_groups(source)
 
 

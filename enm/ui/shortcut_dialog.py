@@ -4,12 +4,13 @@
 按分组列出所有可自定义的动作，每项都可以重新录制按键：
 
 * 点一下按键框再按新组合键即可改键；
-* 右侧下拉框是鼠标键槽（鼠标侧键的后退 / 前进或中键），与键盘槽互不影响，
-  同一个动作可以同时有键盘键和鼠标键；
-* 每行右侧的「恢复默认」还原当前这一项的两套绑定；
+* 第一个下拉框是鼠标键槽（鼠标侧键的后退 / 前进或中键）；
+* 第二个下拉框是手柄槽（Xbox 手柄的 A / B / 十字键…）；
+* 三套槽彼此独立，同一个动作可以同时有键盘键、鼠标键和手柄键；
+* 每行右侧的「恢复默认」还原当前这一项的三套绑定；
 * 底部「全部恢复默认」一次性还原所有项；
-* 出现重复按键（键盘与鼠标各自判定）时直接拒绝保存并列出冲突项，
-  避免按下快捷键时行为不确定。
+* 出现重复按键（键盘 / 鼠标 / 手柄各自判定）时直接拒绝保存并列出冲突项，
+  避免按下同一个键时行为不确定。
 
 界面文案全部走 ``enm.i18n``（语言键前缀 ``shortcut.``），分组名与功能名
 由 :mod:`enm.shortcuts` 的 ``group_label`` / ``label_of`` / ``hint_of`` 提供。
@@ -26,7 +27,8 @@ from .. import i18n
 from ..logger import logger
 from ..shortcuts import (DEFS_BY_ID, display_text, group_label,
                          grouped_definitions, hint_of, label_of, mouse_choices,
-                         mouse_display, mouse_token, normalise_sequence)
+                         mouse_display, normalise_sequence, pad_choices,
+                         pad_display)
 from .titlebar import apply_to_widget
 
 
@@ -40,12 +42,14 @@ class ShortcutSettingsDialog(QDialog):
         self.editors = {}
         # 动作 id -> QComboBox（鼠标键槽）
         self.mouse_editors = {}
+        # 动作 id -> QComboBox（手柄槽）
+        self.pad_editors = {}
         #: 本对话框自己的标题栏用哪套配色（showEvent 里才会真正套上去）
         self._titlebar_theme = titlebar_theme
 
         self.setWindowTitle(i18n.t("dialog.shortcut_settings"))
-        # 比旧版宽：每行多了鼠标键下拉框（键盘框 + 鼠标框 + 默认值 + 按钮）
-        self.resize(780, 640)
+        # 比旧版宽：每行多了鼠标键与手柄两个下拉框（键盘框 + 两个下拉 + 默认值 + 按钮）
+        self.resize(940, 640)
 
         layout = QVBoxLayout(self)
 
@@ -122,15 +126,27 @@ class ShortcutSettingsDialog(QDialog):
         mouse_box = QComboBox()
         for token, name in mouse_choices():
             mouse_box.addItem(name, token)
-        mouse_box.setMinimumWidth(130)
+        mouse_box.setMinimumWidth(140)
         mouse_box.setToolTip(self.mouse_hint_text(action_id))
         self.mouse_editors[action_id] = mouse_box
-        self.select_mouse(mouse_box, self.shortcut_manager.get_mouse(action_id))
+        self.select_token(mouse_box, self.shortcut_manager.get_mouse(action_id))
         row.addWidget(mouse_box)
+
+        pad_box = QComboBox()
+        for token, name in pad_choices():
+            pad_box.addItem(name, token)
+        pad_box.setMinimumWidth(140)
+        pad_box.setToolTip(self.pad_hint_text(action_id))
+        self.pad_editors[action_id] = pad_box
+        self.select_token(pad_box, self.shortcut_manager.get_pad(action_id))
+        row.addWidget(pad_box)
 
         default_text = QLabel(i18n.t(
             "shortcut.default", keys=display_text(definition.default)))
         default_text.setMinimumWidth(110)
+        default_text.setToolTip(i18n.t(
+            "shortcut.default_pad",
+            keys=display_text(self.shortcut_manager.pad_default_of(action_id))))
         row.addWidget(default_text)
 
         reset_btn = QPushButton(i18n.t("common.reset_default"))
@@ -152,30 +168,46 @@ class ShortcutSettingsDialog(QDialog):
                                 keys=mouse_display(default_mouse)))
         return "\n".join(lines)
 
+    def pad_hint_text(self, action_id):
+        """手柄下拉框的提示（默认绑了手柄键时把默认值也写进去）"""
+        lines = [i18n.t("shortcut.pad.hint")]
+        default_pad = self.shortcut_manager.pad_default_of(action_id)
+        if default_pad:
+            lines.append(i18n.t("shortcut.pad.default",
+                                keys=pad_display(default_pad)))
+        return "\n".join(lines)
+
     @staticmethod
-    def select_mouse(box, value):
-        """把下拉框切到指定鼠标记号（认不出来的记号落到「未绑定」）"""
+    def select_token(box, value):
+        """把下拉框切到指定记号（认不出来的记号落到「未绑定」）"""
         index = box.findData(normalise_sequence(value))
         box.setCurrentIndex(index if index >= 0 else 0)
 
     def reset_one(self, action_id):
-        """把某一项的两套绑定都还原为默认值"""
+        """把某一项的三套绑定都还原为默认值"""
         editor = self.editors.get(action_id)
         if editor is not None:
             editor.setKeySequence(self.shortcut_manager.key_sequence_of(
                 action_id, use_default=True))
         box = self.mouse_editors.get(action_id)
         if box is not None:
-            self.select_mouse(box, self.shortcut_manager.mouse_default_of(
+            self.select_token(box, self.shortcut_manager.mouse_default_of(
+                action_id))
+        pad_box = self.pad_editors.get(action_id)
+        if pad_box is not None:
+            self.select_token(pad_box, self.shortcut_manager.pad_default_of(
                 action_id))
 
     def reset_all(self):
-        """还原全部默认按键（键盘与鼠标一起）"""
+        """还原全部默认按键（键盘、鼠标与手柄一起）"""
         for action_id, editor in self.editors.items():
             editor.setKeySequence(self.shortcut_manager.key_sequence_of(
                 action_id, use_default=True))
         for action_id, box in self.mouse_editors.items():
-            self.select_mouse(box, self.shortcut_manager.mouse_default_of(
+            self.select_token(box, self.shortcut_manager.mouse_default_of(
+                action_id))
+        for action_id, box in self.pad_editors.items():
+            self.select_token(box, self.shortcut_manager.pad_default_of(
                 action_id))
 
     def collected_bindings(self):
@@ -193,10 +225,17 @@ class ShortcutSettingsDialog(QDialog):
             bindings[action_id] = normalise_sequence(box.currentData() or "")
         return bindings
 
+    def collected_pad_bindings(self):
+        """收集界面上当前的手柄绑定（动作 id -> 记号）"""
+        bindings = {}
+        for action_id, box in self.pad_editors.items():
+            bindings[action_id] = normalise_sequence(box.currentData() or "")
+        return bindings
+
     @staticmethod
     def binding_display(value):
-        """冲突提示里的绑定名（鼠标键换成键位名，不直接吐 MouseBack 这种记号）"""
-        return mouse_display(value) if mouse_token(value) else value
+        """冲突提示里的绑定名（鼠标 / 手柄记号换成键位名，不直接吐记号）"""
+        return display_text(value)
 
     def conflict_message(self, groups):
         """把冲突项拼成提示文本"""
@@ -211,18 +250,21 @@ class ShortcutSettingsDialog(QDialog):
         return i18n.t("shortcut.conflict_message", details="\n".join(lines))
 
     def accept(self):
-        """确定：校验冲突后保存到配置（键盘与鼠标各查自己的重复）"""
+        """确定：校验冲突后保存到配置（键盘 / 鼠标 / 手柄各查自己的重复）"""
         bindings = self.collected_bindings()
         mouse_bindings = self.collected_mouse_bindings()
+        pad_bindings = self.collected_pad_bindings()
         conflicts = (self.shortcut_manager.conflict_groups(bindings)
                      + self.shortcut_manager.mouse_conflict_groups(
-                         mouse_bindings))
+                         mouse_bindings)
+                     + self.shortcut_manager.pad_conflict_groups(
+                         pad_bindings))
         if conflicts:
             logger.log("快捷键设置保存失败: 存在重复按键")
             QMessageBox.warning(self, i18n.t("shortcut.conflict_title"),
                                 self.conflict_message(conflicts))
             return
 
-        self.shortcut_manager.apply(bindings, mouse_bindings)
+        self.shortcut_manager.apply(bindings, mouse_bindings, pad_bindings)
         self.shortcut_manager.save()
         super().accept()

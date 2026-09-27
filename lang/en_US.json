@@ -83,6 +83,11 @@
     "tray_close_hide": "Hide to Tray on Close",
     "media_keys": "Media Keys Control Reading",
     "media_keys_unavailable": "Requires the winrt component (an optional dependency, see README); it is not installed",
+    "gamepad": "Gamepad Control Reading",
+    "gamepad_unavailable": "XInput (a Windows built-in component) is unavailable, so gamepad support cannot be used",
+    "gamepad_connected": "Gamepad detected",
+    "gamepad_disconnected": "No gamepad detected; plug one in and it will work automatically",
+    "gamepad_rumble": "Gamepad Vibration Feedback",
     "language": "Language",
     "help": "Help",
     "about": "About",
@@ -146,7 +151,11 @@
     "tts_unavailable": "No speech engine is available on this computer, so reading aloud cannot be used.",
     "tts_empty": "This chapter has no text to read aloud (it may contain images only).",
     "media_keys_missing": "The winrt component (an optional dependency) is not installed, so global media keys cannot be used.",
-    "media_keys_failed": "Failed to start global media keys: {error}"
+    "media_keys_failed": "Failed to start global media keys: {error}",
+    "gamepad_missing": "XInput (a Windows built-in component) is unavailable, so gamepad support cannot be used.",
+    "gamepad_not_connected": "No gamepad detected right now. Plug one in (or press the Xbox button to wake it) and it will start working automatically; you do not need to toggle this again.",
+    "gamepad_found_title": "Gamepad detected",
+    "gamepad_found": "A gamepad is connected, but Gamepad Control Reading is still off.\n\nTurn it on now? You will be able to control reading, change chapters and scroll the reader with the gamepad; the buttons can be remapped in Shortcut Settings and vibration can be turned off.\n\nThis notice only appears once. After that you can toggle it any time in Settings -> Gamepad Control Reading."
   },
   "typography": {
     "hint": "Line spacing and paragraph spacing apply to the reading area. Paragraph spacing is the blank space between two paragraphs in pixels; Qt's own default is about 24, so 24 means the original look.",
@@ -349,7 +358,7 @@
       "view": "Interface",
       "theme": "Theme & Settings"
     },
-    "hint": "Note: Ctrl combinations work anywhere in the window; arrow keys and page keys only work when the reading area has focus.\nClick a key field and press the new shortcut to rebind it; press Delete to clear a binding. The drop-down to the right binds a mouse side or middle button to the same action.",
+    "hint": "Note: Ctrl combinations work anywhere in the window; arrow keys and page keys only work when the reading area has focus.\nClick a key field and press the new shortcut to rebind it; press Delete to clear a binding. The two drop-downs to the right bind a gamepad button or a mouse side / middle button to the same action; the three sets are saved separately and do not affect each other.\nThe gamepad column requires \u201cSettings \u2192 Gamepad Control Reading\u201d to be enabled first.",
     "mouse": {
       "hint": "Bind the mouse back / forward button or the middle button to this action. It is saved separately from the keyboard binding, so one action can have both.",
       "default": "Default: {keys}",
@@ -357,7 +366,29 @@
       "forward": "Mouse Forward",
       "middle": "Mouse Middle"
     },
+    "pad": {
+      "hint": "Bind a button on an Xbox gamepad to this action. It is saved separately from the keyboard and mouse bindings, so one action can use all three. Scrolling the reading area is on the left stick and is not bound here.",
+      "default": "Default: {keys}",
+      "a": "Gamepad A",
+      "b": "Gamepad B",
+      "x": "Gamepad X",
+      "y": "Gamepad Y",
+      "lb": "Gamepad LB (left shoulder)",
+      "rb": "Gamepad RB (right shoulder)",
+      "lt": "Gamepad LT (left trigger)",
+      "rt": "Gamepad RT (right trigger)",
+      "up": "D-pad Up",
+      "down": "D-pad Down",
+      "left": "D-pad Left",
+      "right": "D-pad Right",
+      "lstick": "Left Stick Click",
+      "rstick": "Right Stick Click",
+      "start": "Gamepad Start",
+      "back": "Gamepad Back",
+      "guide": "Gamepad Xbox Button"
+    },
     "default": "Default: {keys}",
+    "default_pad": "Gamepad default: {keys}",
     "reset_tooltip": "Restore the default shortcut for \"{label}\"",
     "conflict_title": "Shortcut Conflict",
     "conflict_message": "The following shortcuts are assigned more than once, please change them first:\n\n{details}",

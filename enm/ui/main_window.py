@@ -28,6 +28,9 @@ from ..managers.book_identity import (FINGERPRINT_SAMPLE, build_identity,
                                       normalise_chapter_title)
 from ..managers import tts_models
 from ..managers import update as update_manager
+from ..managers.gamepad import (GamepadController, gamepad_connected,
+                                gamepad_importable,
+                                gamepad_unavailable_reason)
 from ..managers.media_keys import (MediaKeysController, media_keys_available,
                                    media_keys_importable,
                                    media_keys_unavailable_reason)
@@ -91,6 +94,10 @@ MEDIA_KEYS_CHECK_MS = 1500
 # 等界面把上次那本书铺完了再联网，别跟打开书的 IO 抢路
 AUTO_UPDATE_DELAY_MS = 4000
 
+# 插着手柄却没开这项功能时，启动后隔多久问一句（毫秒）：
+# 比更新检查早一点，先把这条不确定会不会弹的提示处理掉
+GAMEPAD_NOTICE_DELAY_MS = 1500
+
 
 def clamp_sidebar_width(value):
     """把侧边栏宽度夹进合法区间（手改过 config.json 也不会把界面搞坏）"""
@@ -149,6 +156,9 @@ class NovelMaster(QMainWindow):
         self._reader_bindings = {}
         # 动作 id -> 鼠标记号（鼠标键不分 scope，详见 handle_mouse_shortcut）
         self._mouse_bindings = {}
+        # 手柄记号 -> 动作 id（手柄同样不分 scope，详见 on_gamepad_token）。
+        # 这里反过来存成「记号 -> 动作」是因为派发时手上拿到的就是记号
+        self._pad_bindings = {}
         # 去抖用：鼠标键没有 isAutoRepeat，某些鼠标 / 驱动按住会连发 Press，
         # 这里记下上一次触发的是哪个记号、什么时候（对应用键盘时的长按保护）
         self._mouse_last_token = ""
@@ -249,6 +259,12 @@ class NovelMaster(QMainWindow):
         #: 媒体键启动失败只弹一次，免得每次翻章都弹
         self._media_keys_error_reported = False
 
+        # 手柄（Windows XInput，见 enm.managers.gamepad）：也是懒创建，
+        # 没开这项功能就一行代码也不跑
+        self._gamepad = None
+        #: 现在有没有认到手柄（菜单提示文本用）
+        self._gamepad_connected = False
+
         # 检查更新（v1.4.4，见 enm.managers.update）：线程与窗口都是懒创建，
         # 没开这个功能就一行代码也不跑
         self._update_worker = None
@@ -271,6 +287,9 @@ class NovelMaster(QMainWindow):
             self.toggle_sidebar_btn.show()
         
         self.logger.log(f"{PROJECT_NAME} 启动成功")
+
+        # 插着手柄却没开这项功能时，问一次要不要打开
+        self._schedule_gamepad_notice()
 
         # 启动时的静默更新检查（默认关闭，见 ConfigManager.default_config）
         self._schedule_auto_update_check()
@@ -794,6 +813,178 @@ class NovelMaster(QMainWindow):
         self.logger.log(f"全局媒体键: {'开启' if checked else '关闭'}")
         self.apply_media_keys_settings()
 
+    # ---- 手柄（Windows XInput） ----
+
+    def _gamepad_tooltip_key(self):
+        """手柄菜单项提示的语言键（说明系统组件在不在、手柄插没插）"""
+        if not gamepad_importable():
+            return "menu.gamepad_unavailable"
+        return ("menu.gamepad_connected" if self._gamepad_connected
+                else "menu.gamepad_disconnected")
+
+    def refresh_gamepad_tip(self):
+        """刷新手柄菜单项的提示（开关 / 插拔 / 切语言时调）"""
+        action = getattr(self, "gamepad_action", None)
+        if action is None:
+            return
+        action.setToolTip(i18n.t(self._gamepad_tooltip_key()))
+
+    def apply_gamepad_settings(self):
+        """按配置启动 / 停止手柄支持（XInput 是系统组件，缺了只写日志）"""
+        enabled = self.config_manager.get("gamepad_enabled", False)
+        # 配置是唯一事实来源：菜单勾选状态跟着它走，免得两边分家。
+        # setChecked 只发 toggled、不发 triggered，不会绕回来重进这里。
+        action = getattr(self, "gamepad_action", None)
+        if action is not None and action.isChecked() != enabled:
+            action.setChecked(enabled)
+        if not enabled:
+            self._shutdown_gamepad()
+            return
+        if not gamepad_importable():
+            reason = gamepad_unavailable_reason() or "未知原因"
+            self.logger.log(f"手柄支持不可用: {reason}", "WARN")
+            self.refresh_gamepad_tip()
+            return
+        if self._gamepad is None:
+            self._gamepad = GamepadController(self)
+            self._gamepad.token.connect(self.on_gamepad_token)
+            self._gamepad.scroll.connect(self.on_gamepad_scroll)
+            self._gamepad.connection.connect(self.on_gamepad_connection)
+        self._gamepad_connected = gamepad_connected()
+        self._gamepad.start()
+        self.refresh_gamepad_tip()
+        self.logger.log("手柄支持已启动" + (
+            "（已检测到手柄）" if self._gamepad_connected
+            else "（暂未检测到手柄，插上即生效）"))
+
+    def _shutdown_gamepad(self):
+        """停掉手柄轮询线程（它自己一个守护线程，退出前必须收摊）"""
+        controller, self._gamepad = getattr(self, "_gamepad", None), None
+        if controller is None:
+            return
+        try:
+            controller.stop()
+        except Exception as e:  # noqa: BLE001
+            self.logger.log(f"停止手柄支持失败: {e}", "WARN")
+
+    def on_gamepad_connection(self, connected):
+        """手柄插上 / 拔掉：更新菜单提示（插上就自动生效，不需要用户再操作）"""
+        self._gamepad_connected = bool(connected)
+        self.refresh_gamepad_tip()
+
+    def toggle_gamepad(self, checked):
+        """切换「手柄控制」"""
+        if checked and not gamepad_importable():
+            QMessageBox.information(self, i18n.t("menu.gamepad"),
+                                    i18n.t("msg.gamepad_missing"))
+            self._reset_check(getattr(self, "gamepad_action", None))
+            return
+        self.config_manager.set("gamepad_enabled", bool(checked))
+        self.logger.log(f"手柄支持: {'开启' if checked else '关闭'}")
+        self.apply_gamepad_settings()
+        if checked and not self._gamepad_connected:
+            # 开着但没插手柄不是错误（插上就生效），只是提醒一句
+            QMessageBox.information(self, i18n.t("menu.gamepad"),
+                                    i18n.t("msg.gamepad_not_connected"))
+
+    def toggle_gamepad_rumble(self, checked):
+        """切换手柄震动反馈（命令生效时短震一下）"""
+        self.config_manager.set("gamepad_rumble", bool(checked))
+        self.logger.log(f"手柄震动反馈: {'开启' if checked else '关闭'}")
+
+    def _schedule_gamepad_notice(self):
+        """插着手柄却没开这项功能时，问一次要不要打开
+
+        只问一次（记在 ``gamepad_notice_shown`` 里）：手柄是少数派功能，
+        默认开着不合适，但默认关着又会让“插上手柄按了没反应”变成
+        一个说不清的静默失败，所以折中成一次性的提示。
+        """
+        if self.config_manager.get("gamepad_enabled", False):
+            return
+        if self.config_manager.get("gamepad_notice_shown", False):
+            return
+        if not gamepad_importable() or not gamepad_connected():
+            # 没插手柄就不问，也不记：下次插着启动时再问
+            return
+        QTimer.singleShot(GAMEPAD_NOTICE_DELAY_MS, self._ask_enable_gamepad)
+
+    def _ask_enable_gamepad(self):
+        """一次性提示：检测到手柄，问要不要打开手柄控制
+
+        延时这一会儿里用户可能已经自己在菜单里开了，或者把手柄拔了，
+        所以这里把条件再核一遍（没拔手柄就不打扰）。
+        """
+        if self.config_manager.get("gamepad_enabled", False):
+            return
+        if self.config_manager.get("gamepad_notice_shown", False):
+            return
+        if not gamepad_connected():
+            return
+        self.config_manager.set("gamepad_notice_shown", True)
+        answer = QMessageBox.question(
+            self, i18n.t("msg.gamepad_found_title"),
+            i18n.t("msg.gamepad_found"),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if answer != QMessageBox.Yes:
+            self.logger.log("检测到手柄，用户选择暂不开启手柄控制")
+            return
+        self.gamepad_action.setChecked(True)
+        self.toggle_gamepad(True)
+
+    def _pad_shortcut_allowed(self):
+        """现在要不要响应手柄
+
+        手柄和鼠标键一样没有「焦点」这个概念，也不像媒体键那样是全局的：
+        只在主窗口是当前活动窗口时才响应。否则在别的全屏程序里按一下 A，
+        后台的朗读就开开关关，那太容易误伤了。
+        """
+        app = QApplication.instance()
+        return app is not None and app.activeWindow() is self
+
+    def _pad_rumble(self):
+        """命令生效时短震一下作为反馈（设置里可以关掉）"""
+        controller = getattr(self, "_gamepad", None)
+        if controller is None:
+            return
+        if not self.config_manager.get("gamepad_rumble", True):
+            return
+        controller.rumble()
+
+    def on_gamepad_token(self, token, repeat=False):
+        """手柄按键派发：查绑定表后走和鼠标键同一套分发
+
+        信号是工作线程发的，槽函数在主线程被调，所以这里碰界面是安全的。
+        ``repeat`` 是长按连发的那几次：动作照旧执行，但不重复震动，
+        否则按住不放会一直嗡嗡响。
+        """
+        if not self._pad_shortcut_allowed():
+            return
+        action_id = self._pad_bindings.get(token)
+        if not action_id:
+            return
+        handler = self._reader_handlers.get(action_id)
+        if handler is not None:
+            if not repeat:
+                self._pad_rumble()
+            handler()
+            return
+        action = self._actions.get(action_id)
+        if action is None or not action.isEnabled():
+            return
+        if not repeat:
+            self._pad_rumble()
+        action.trigger()
+
+    def on_gamepad_scroll(self, delta):
+        """左摇杆滚动阅读区（手柄的「滚轮」，属于固定行为、不参与改键）"""
+        if not delta or not self._pad_shortcut_allowed():
+            return
+        display = getattr(self, "reader_display", None)
+        if display is None:
+            return
+        bar = display.verticalScrollBar()
+        bar.setValue(bar.value() + int(delta))
+
     def retranslate_ui(self):
         """按当前语言刷新整个界面（切换语言后调用，无需重启）"""
         for binding in self._text_bindings:
@@ -818,6 +1009,9 @@ class NovelMaster(QMainWindow):
         # 朗读条上的按钮 / 开关文案（「开始朗读」等不在 _text_bindings 里，
         # 它在朗读条内部自己管）
         self.tts_bar.retranslate()
+        # 手柄菜单项的提示（「已连接 / 未连接」是实时状态，走的是函数绑定，
+        # 这里再补一次）
+        self.refresh_gamepad_tip()
         # 托盘提示与菜单文案（显示 / 隐藏、退出）
         self._refresh_tray()
     
@@ -1061,6 +1255,26 @@ class NovelMaster(QMainWindow):
             self.bind_text(self.media_keys_action,
                            "menu.media_keys_unavailable", "setToolTip")
         settings_menu.addAction(self.media_keys_action)
+
+        # 手柄（Windows XInput）：XInput 是系统自带的，用不着装东西，
+        # 但插着手柄的人只是少数，所以也默认关闭（同媒体键）
+        self.gamepad_action = self.make_action("menu.gamepad",
+                                              self.toggle_gamepad)
+        self.gamepad_action.setCheckable(True)
+        self.gamepad_action.setChecked(
+            self.config_manager.get("gamepad_enabled", False))
+        # 提示文本要跟着「手柄插没插」变，所以语言绑定传的是个函数
+        self._gamepad_connected = gamepad_connected()
+        self.bind_text(self.gamepad_action, self._gamepad_tooltip_key,
+                       "setToolTip")
+        settings_menu.addAction(self.gamepad_action)
+
+        self.gamepad_rumble_action = self.make_action(
+            "menu.gamepad_rumble", self.toggle_gamepad_rumble)
+        self.gamepad_rumble_action.setCheckable(True)
+        self.gamepad_rumble_action.setChecked(
+            self.config_manager.get("gamepad_rumble", True))
+        settings_menu.addAction(self.gamepad_rumble_action)
         
         # 快捷键设置
         self.make_action("menu.shortcut_settings", self.open_shortcut_dialog,
@@ -1224,6 +1438,13 @@ class NovelMaster(QMainWindow):
             token = self.shortcut_manager.mouse_token_of(definition.action_id)
             if token:
                 self._mouse_bindings[definition.action_id] = token
+        # 手柄也单独缓存，同样不按 scope 分桶（判定见 _pad_shortcut_allowed）。
+        # 存成「记号 -> 动作 id」：派发时拿到的是记号，查一次就够
+        self._pad_bindings = {}
+        for definition in ACTION_DEFS:
+            token = self.shortcut_manager.pad_token_of(definition.action_id)
+            if token:
+                self._pad_bindings[token] = definition.action_id
     
     def refresh_shortcuts(self):
         """改键后重新套用全部快捷键"""
@@ -1393,6 +1614,8 @@ class NovelMaster(QMainWindow):
         # 系统托盘与全局媒体键（v1.3.9）
         self.apply_tray_settings()
         self.apply_media_keys_settings()
+        # 手柄（XInput）
+        self.apply_gamepad_settings()
     
     def apply_theme(self, theme_name):
         """应用主题。
@@ -4295,6 +4518,9 @@ class NovelMaster(QMainWindow):
 
         # 全局媒体键有自己的线程与消息泵，退出前先让它收摊
         self._shutdown_media_keys()
+
+        # 手柄的轮询线程也要收（收的时候会把震动关掉）
+        self._shutdown_gamepad()
 
         # 音色管理窗口的下载线程也得收（正在下就让它断在半路，.part 留着）
         dialog = self._tts_model_dialog

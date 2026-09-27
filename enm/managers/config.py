@@ -79,8 +79,23 @@ class ConfigManager:
             # * shortcuts —— 键盘绑定（只存与默认值不同的项）
             # * shortcuts_mouse —— 鼠标键绑定（鼠标侧键 / 中键），与键盘各存一套，
             #   互不影响：同一个动作可以同时有键盘键和鼠标键
+            # * shortcuts_pad —— 手柄绑定（Xbox 手柄按键），同样各存一套。
+            #   注意这三套槽的默认值是代码里的默认值，跟开关无关：
+            #   gamepad_enabled 关着的时候手柄那边一行代码都不跑
             "shortcuts": {},
             "shortcuts_mouse": {},
+            "shortcuts_pad": {},
+            # 手柄（Windows XInput，见 enm.managers.gamepad）：
+            # * gamepad_enabled —— 用手柄控制朗读 / 翻章 / 滚动。**默认关闭**：
+            #   XInput 是系统自带的，用不着装东西，但插着手柄的用户只是少数，
+            #   不该默认去抢别人的手柄输入；想用的在「设置」里打开
+            # * gamepad_rumble —— 命令生效时短震一下作为反馈（手柄没震动马达
+            #   就自动没效果，不用管）
+            # * gamepad_notice_shown —— 插着手柄却没开这项功能时，启动后问
+            #   一句「要不要打开」，问过就记成 True。一次性提示，只出现一次
+            "gamepad_enabled": False,
+            "gamepad_rumble": True,
+            "gamepad_notice_shown": False,
             # 检查更新（v1.4.4，见 enm.managers.update）：
             # * auto_check_update —— 启动时自动检查更新。**默认关闭**：不打招呼
             #   就联网不合适，想用的用户在「设置」里打开（开一次就在 config.json

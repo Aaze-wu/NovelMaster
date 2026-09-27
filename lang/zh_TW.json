@@ -83,6 +83,11 @@
     "tray_close_hide": "關閉視窗時隱藏到系統匣",
     "media_keys": "媒體鍵控制朗讀",
     "media_keys_unavailable": "需要 winrt 元件（可選相依套件，見 README），本機沒有安裝",
+    "gamepad": "手把控制朗讀",
+    "gamepad_unavailable": "本機沒有可用的 XInput（Windows 內建元件），手把無法使用",
+    "gamepad_connected": "已偵測到手把",
+    "gamepad_disconnected": "未偵測到手把，插上後會自動生效",
+    "gamepad_rumble": "手把震動回饋",
     "language": "語言",
     "help": "說明",
     "about": "關於",
@@ -146,7 +151,11 @@
     "tts_unavailable": "這台電腦上沒有可用的語音引擎，朗讀功能無法使用。",
     "tts_empty": "這一章沒有可朗讀的文字（可能只有圖片）。",
     "media_keys_missing": "本機沒安裝 winrt 元件（可選相依套件），全域媒體鍵無法使用。",
-    "media_keys_failed": "全域媒體鍵啟動失敗：{error}"
+    "media_keys_failed": "全域媒體鍵啟動失敗：{error}",
+    "gamepad_missing": "本機沒有可用的 XInput 元件（Windows 內建），手把功能無法使用。",
+    "gamepad_not_connected": "目前沒有偵測到手把。插上手把（或按下 Xbox 鍵喚醒）就會自動生效，不用再點這裡。",
+    "gamepad_found_title": "偵測到手把",
+    "gamepad_found": "偵測到已連接的手把，但「手把控制朗讀」還沒開啟。\n\n現在要開啟嗎？開啟後可以用手把控制朗讀、翻章，左搖桿捲動閱讀區；按鍵可以在「快速鍵設定」裡改，震動也能關。\n\n這個提醒只會出現一次，之後隨時可以在「設定 → 手把控制朗讀」裡開關。"
   },
   "typography": {
     "hint": "行距與段間距作用在閱讀區正文上。段間距是相鄰兩段之間的空白（像素），Qt 自帶約 24，所以填 24 就是原來的樣子。",
@@ -349,7 +358,7 @@
       "view": "介面控制",
       "theme": "主題與設定"
     },
-    "hint": "提示：Ctrl 組合鍵在視窗內任意位置皆可生效；方向鍵與翻頁鍵只在閱讀區取得焦點時生效。\n點選按鍵欄位後按下新快捷鍵即可改鍵，按 Delete 可清除該綁定；右側下拉選單可把滑鼠側鍵或中鍵綁到同一個動作上。",
+    "hint": "提示：Ctrl 組合鍵在視窗內任意位置皆可生效；方向鍵與翻頁鍵只在閱讀區取得焦點時生效。\n點選按鍵欄位後按下新快捷鍵即可改鍵，按 Delete 可清除該綁定；右邊兩個下拉選單可以把手把按鍵、滑鼠側鍵或中鍵綁到同一個動作上，三套綁定分開保存、互不影響。\n手把那一欄要先用「設定 → 手把控制朗讀」把功能打開。",
     "mouse": {
       "hint": "把滑鼠的後退鍵 / 前進鍵或中鍵綁到這個動作上；與鍵盤綁定分開保存，同一個動作可以兩套同時用。",
       "default": "預設: {keys}",
@@ -357,7 +366,29 @@
       "forward": "滑鼠前進鍵",
       "middle": "滑鼠中鍵"
     },
+    "pad": {
+      "hint": "把 Xbox 手把上的按鍵綁到這個動作上；與鍵盤、滑鼠綁定分開保存，同一個動作可以三套同時用。左搖桿負責捲動閱讀區，不用在這裡綁。",
+      "default": "預設: {keys}",
+      "a": "手把 A 鍵",
+      "b": "手把 B 鍵",
+      "x": "手把 X 鍵",
+      "y": "手把 Y 鍵",
+      "lb": "手把 LB（左肩鍵）",
+      "rb": "手把 RB（右肩鍵）",
+      "lt": "手把 LT（左扳機）",
+      "rt": "手把 RT（右扳機）",
+      "up": "十字鍵上",
+      "down": "十字鍵下",
+      "left": "十字鍵左",
+      "right": "十字鍵右",
+      "lstick": "左搖桿按下",
+      "rstick": "右搖桿按下",
+      "start": "手把 Start 鍵",
+      "back": "手把 Back 鍵",
+      "guide": "手把 Xbox 鍵"
+    },
     "default": "預設: {keys}",
+    "default_pad": "手把預設: {keys}",
     "reset_tooltip": "把「{label}」還原為預設按鍵",
     "conflict_title": "按鍵衝突",
     "conflict_message": "以下按鍵被重複使用，請先改成不同的按鍵：\n\n{details}",

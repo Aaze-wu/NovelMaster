@@ -83,6 +83,11 @@
     "tray_close_hide": "关闭窗口时隐藏到托盘",
     "media_keys": "媒体键控制朗读",
     "media_keys_unavailable": "需要 winrt 组件（可选依赖，见 README），本机没装上",
+    "gamepad": "手柄控制朗读",
+    "gamepad_unavailable": "本机没有可用的 XInput（Windows 自带组件），手柄用不了",
+    "gamepad_connected": "已检测到手柄",
+    "gamepad_disconnected": "未检测到手柄，插上后自动生效",
+    "gamepad_rumble": "手柄震动反馈",
     "language": "语言",
     "help": "帮助",
     "about": "关于",
@@ -146,7 +151,11 @@
     "tts_unavailable": "这台电脑上没有可用的语音引擎，朗读功能无法使用。",
     "tts_empty": "这一章没有可朗读的文字（可能只有图片）。",
     "media_keys_missing": "本机没装 winrt 组件（可选依赖），全局媒体键用不了。",
-    "media_keys_failed": "全局媒体键启动失败：{error}"
+    "media_keys_failed": "全局媒体键启动失败：{error}",
+    "gamepad_missing": "本机没有可用的 XInput 组件（Windows 自带），手柄功能用不了。",
+    "gamepad_not_connected": "现在没检测到手柄。把手柄插上（或按下 Xbox 键唤醒）就会自动生效，不用再点这里。",
+    "gamepad_found_title": "检测到手柄",
+    "gamepad_found": "检测到已连接的手柄，但「手柄控制朗读」还没打开。\n\n现在打开吗？打开后可以用手柄控制朗读、翻章，左摇杆滚动阅读区；按键可以在「快捷键设置」里改，震动也能关。\n\n这个提醒只会出现一次，之后随时可以在「设置 → 手柄控制朗读」里开关。"
   },
   "typography": {
     "hint": "行距与段间距作用在阅读区正文上。段间距是相邻两段之间的空白（像素），Qt 自带约 24，所以填 24 就是原来的样子。",
@@ -349,7 +358,7 @@
       "view": "界面控制",
       "theme": "主题与设置"
     },
-    "hint": "提示：Ctrl 组合键在窗口内任意位置生效；方向键、翻页键只在阅读区获得焦点时生效。\n单击按键框后按下新快捷键即可改键，按 Delete 可清空该绑定；右侧下拉框可把鼠标侧键或中键绑到同一个动作上。",
+    "hint": "提示：Ctrl 组合键在窗口内任意位置生效；方向键、翻页键只在阅读区获得焦点时生效。\n单击按键框后按下新快捷键即可改键，按 Delete 可清空该绑定；右边两个下拉框可以把手柄按键、鼠标侧键或中键绑到同一个动作上，三套绑定分别保存、互不影响。\n手柄那一列要先用「设置 → 手柄控制朗读」把功能打开。",
     "mouse": {
       "hint": "把鼠标的后退键 / 前进键或中键绑到这个动作上；与键盘绑定分别保存，同一个动作可以两套同时用。",
       "default": "默认: {keys}",
@@ -357,7 +366,29 @@
       "forward": "鼠标前进键",
       "middle": "鼠标中键"
     },
+    "pad": {
+      "hint": "把 Xbox 手柄上的按键绑到这个动作上；与键盘、鼠标绑定分别保存，同一个动作可以三套同时用。左摇杆负责滚动阅读区，不用在这里绑。",
+      "default": "默认: {keys}",
+      "a": "手柄 A 键",
+      "b": "手柄 B 键",
+      "x": "手柄 X 键",
+      "y": "手柄 Y 键",
+      "lb": "手柄 LB（左肩键）",
+      "rb": "手柄 RB（右肩键）",
+      "lt": "手柄 LT（左扳机）",
+      "rt": "手柄 RT（右扳机）",
+      "up": "十字键上",
+      "down": "十字键下",
+      "left": "十字键左",
+      "right": "十字键右",
+      "lstick": "左摇杆按下",
+      "rstick": "右摇杆按下",
+      "start": "手柄 Start 键",
+      "back": "手柄 Back 键",
+      "guide": "手柄 Xbox 键"
+    },
     "default": "默认: {keys}",
+    "default_pad": "手柄默认: {keys}",
     "reset_tooltip": "把「{label}」还原为默认按键",
     "conflict_title": "按键冲突",
     "conflict_message": "以下按键被重复使用，请先改成不同的按键：\n\n{details}",
