@@ -129,7 +129,7 @@ pip install PyQt5 PyQtWebEngine ebooklib lxml Pillow python-docx chardet qdarkst
 | `mobi` | MOBI/AZW/AZW3/PRC 增强解析（**GPL-3.0-only**，与本项目 MIT 许可不兼容，故不列为必需） | 用内置解析器，功能基本一致 |
 | `pywin32>=306` | 朗读走 `sapi-com`，能看到 OneCore 语音库（中文多出 Kangkang / Yaoyao） | 回落 `QTextToSpeech`，功能一样齐全，音色少一些 |
 | `sherpa-onnx>=1.13.8` | 朗读的**离线神经音色**（Piper / Kokoro，Apache-2.0，轮子自带 onnxruntime） | 菜单里没有“离线神经音色” |
-| `edge-tts>=7.2.8` | 朗读的**在线音色**（微软 322 个在线音色，需联网，MIT） | 菜单里没有“在线音色” |
+| `edge-tts>=7.3.1` | 朗读的**在线音色**（微软 322 个在线音色，需联网，MIT） | 菜单里没有“在线音色” |
 | `winrt-runtime` / `winrt-Windows.*` | **全局媒体键**（v1.3.9）：媒体键控制朗读 + 任务栏媒体浮层显示书名/章节（pywinrt 投影，MIT） | 设置里的“媒体键控制朗读”置灰 |
 | `pypinyin>=0.55.0` | 朗读的**多音字读音纠正**（v1.4.2）：只为“自动推断多音字”那一层提供注音（MIT） | 内置规则与自定义词典照旧可用，只是多一个开关 |
 
@@ -441,7 +441,8 @@ PowerShell 版本与其参数完全对应：
 - **`sapi`（系统语音）**：用 `PyQt5.QtTextToSpeech`，只列得出经典
   语音库（本机通常只有 Huihui 一个中文音色）。不用装任何东西；
 - **`edge`（在线音色，v1.3.8 新增）**：微软 Azure 的 322 个在线音色（中文 8 个），
-  音质是四套里最好的，但**需要联网**。需要 `pip install edge-tts`。
+  音质是四套里最好的，但**需要联网**。需要 `pip install edge-tts`（**7.3.1 或更新**，
+  旧版本合成会被服务端 403 拒绝，报错信息会说“请检查网络”，其实升级一下就好）。
 
 ### 怎么用
 
@@ -479,7 +480,7 @@ PowerShell 版本与其参数完全对应：
 | `sherpa` | 离线神经音色 | Piper（超文 / 小雅 / 华言）+ Kokoro（103 个音色），共 106 个音色，**不联网** | `pip install sherpa-onnx` + 下载模型 |
 | `sapi-com` | 系统语音 | 直驱 `SAPI.SpVoice`，能看到 OneCore 语音库 | `pywin32` |
 | `sapi` | 系统语音 | `QTextToSpeech`，只用经典语音库 | 无（PyQt5 自带） |
-| `edge` | 在线音色 | 微软 322 个在线音色（中文 8 个，如 Xiaoxiao / Yunxi / Yunyang），音质最好 | `pip install edge-tts` + 联网 |
+| `edge` | 在线音色 | 微软 322 个在线音色（中文 8 个，如 Xiaoxiao / Yunxi / Yunyang），音质最好 | `pip install edge-tts`（≥7.3.1）+ 联网 |
 
 自动挑的顺序就是上表从上到下，并在配置里记住你手动选过的那个（`tts_engine`）。
 选中的引擎当时用不了（卸了库 / 模型删了 / 换了台机器）会自动退回自动选择并写一条日志，
@@ -1113,6 +1114,23 @@ html = inline_images(html, resolve)
 欢迎提交 Issue 和 Pull Request！
 
 ## 更新日志
+
+### v1.4.8
+
+本版修好「**在线音色一点就报 403**」，并把那句会把人带偏的「请检查网络」换成能照着做的提示。
+
+- **为什么一读就失败**：微软把读出接口的签名校验从 `Sec-MS-GEC` **v1 换成了 v2**，
+  旧的 `edge-tts` 还在按 v1 签名，服务端直接拒绝连接。报错原文是
+  `403, message='Invalid response status'`，配上「请检查网络」，看着完全是网络问题。
+- **为什么容易误判**：取音色列表走的是另一条 HTTPS 接口，**那一条没有签名校验**，
+  于是「音色能正常选、一点朗读就失败」成了这个问题的固定表现 —— 跟网络一点关系都没有。
+- **提示现在会说是版本问题**：合成被拒时弹窗会给出**本机 edge-tts 的版本**和**微软现在要求的
+  版本**，并附上 `pip install -U edge-tts`。真正的网络故障仍然单独提示，两条路不再共用一个文案。
+- 启动时如果发现本机 `edge-tts` 低于要求版本，会在日志里记一条 WARN（附两个版本号），
+  但**不会**拦着你启动或改用其它朗读引擎。
+- 服务端拒绝的各种表现（握手 403、`SkewAdjustmentError` 时间偏移告警等）统一走同一条判定。
+- **依赖要求提高到 `edge-tts >= 7.3.1`**：如果用自己配的 Python 环境，请执行一次
+  `pip install -U edge-tts`；用安装包内置运行环境则无需操作。
 
 ### v1.4.7
 

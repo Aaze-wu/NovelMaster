@@ -59,12 +59,16 @@ pypdf>=6.0.0
 #     官方发行版已随包附带，源码运行想体验神经音色时再装：
 #     pip install sherpa-onnx
 #
-# edge-tts>=7.2.8
+# edge-tts>=7.3.1
 #     朗读的「在线音色」依赖（MIT）。装上后可以挑选微软 Azure 的
 #     300 多个在线音色（中文 6 个，如 Xiaoxiao / Yunxi / Xiaoyi）。
 #     音质是三者里最好的，但需要联网，且音频是 MP3（用 QtMultimedia 播放）。
 #     未安装时朗读自动回落系统语音；装了但断网时会明确提示合成失败。
+#     版本别低于 7.3.1：微软给朗读接口加了 Sec-MS-GEC v2 令牌校验，
+#     7.3.0 之前不带这个令牌，于是取音色列表照样成功（那是另一个接口），
+#     一合成就被 403 拒绝，表现为「音色能选，一读就失败」。
 #     pip install edge-tts
+#     已有旧版本就升级：pip install -U edge-tts
 #
 # winrt-runtime / winrt-Windows.Media 等（pywinrt 投影，v1.3.9 起）
 #     「全局媒体键」依赖（MIT）。装上后设置里可以打开「媒体键控制朗读」：

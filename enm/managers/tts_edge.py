@@ -13,6 +13,11 @@
 * **必须联网**：断网 / 超时会抛异常，这里把它变成一句人话提示，不静默换引擎；
 * **音色列表要联网才拿得到**：所以列表缓存到 ``<数据目录>/tts_voices_edge.json``，
   开机先用缓存（离线也能把菜单列出来），后台线程再去刷新。
+* **库版本不能太旧**：微软给朗读接口加了 ``Sec-MS-GEC`` **v2** 令牌校验，
+  ``edge-tts`` 从 7.3.0 才开始带（见 :data:`MIN_EDGE_TTS`）。老版本取音色列表**照样
+  成功**（那走的是另一个 HTTP 接口，不校验令牌），可一开始合成就被 **403** 拒掉，
+  表现成「音色能选，一读就失败」。所以下面把 403 单独翻译成「升级 edge-tts」的提示，
+  而不是笼统地说「请检查网络」。
 """
 
 import asyncio
@@ -41,6 +46,74 @@ VOICE_CACHE_TTL = 7 * 24 * 3600
 #: 单次合成的总超时（秒）
 SYNTH_TIMEOUT = 60
 
+#: 第一个会带 ``Sec-MS-GEC`` v2 令牌的 ``edge-tts`` 版本。
+#: 比它更老的版本合成一律被服务端 403 拒绝（``WSServerHandshakeError``）。
+MIN_EDGE_TTS = (7, 3, 1)
+
+#: :data:`MIN_EDGE_TTS` 的可读写法（给提示文案用）
+MIN_EDGE_TTS_TEXT = ".".join(str(part) for part in MIN_EDGE_TTS)
+
+#: 服务端「拒绝握手」时出现过的字样（403 在 aiohttp 里就这几种说法 + 时钟偏移）。
+#: 只认文本，不认数字：``ConnectionId`` 之类的十六进制串里随时会出现 "403"。
+_REJECT_MARKERS = (
+    "handshakestatuserror",
+    "invalid response status",
+    "403 forbidden",
+    "server rejected websocket",
+    "skewadjustment",
+)
+
+
+def edge_version():
+    """本机 ``edge-tts`` 的版本，形如 ``(7, 3, 1)``；取不到就给 ``()``"""
+    try:
+        import edge_tts
+    except Exception:  # noqa: BLE001 - 没装 / 装坏了都算「不知道」
+        return ()
+    info = getattr(edge_tts, "__version_info__", None)
+    if isinstance(info, tuple) and info:
+        try:
+            return tuple(int(part) for part in info[:3])
+        except (TypeError, ValueError):
+            pass
+    try:
+        text = str(getattr(edge_tts, "__version__", "") or "")
+    except Exception:  # noqa: BLE001 - 元数据坏了也不该让朗读炸掉
+        return ()
+    parts = []
+    for chunk in text.split(".")[:3]:
+        digits = ""
+        for char in chunk:
+            if not char.isdigit():
+                break
+            digits += char
+        if not digits:
+            break
+        parts.append(int(digits))
+    return tuple(parts)
+
+
+def edge_version_text():
+    """本机 ``edge-tts`` 版本的可读写法；不知道就给 ``"-"``"""
+    version = edge_version()
+    return ".".join(str(part) for part in version) if version else "-"
+
+
+def edge_outdated():
+    """版本老到会被服务端拒绝（老版本不带 v2 令牌）"""
+    version = edge_version()
+    return bool(version) and version < MIN_EDGE_TTS
+
+
+def is_rejected(error):
+    """这次失败是不是「服务端拒绝握手」（版本旧 / 系统时间偏），而不是网络不通"""
+    if isinstance(error, BaseException):
+        text = f"{type(error).__name__} {error}"
+    else:
+        text = str(error or "")
+    text = text.lower()
+    return any(marker in text for marker in _REJECT_MARKERS)
+
 
 def edge_available():
     """本机装没装 ``edge-tts``"""
@@ -52,6 +125,11 @@ def edge_available():
     except Exception as exc:  # noqa: BLE001 - 装了但加载不了（缺依赖等）
         logger.log(f"加载 edge-tts 失败，在线音色不可用: {exc}", "ERROR")
         return False
+    if edge_outdated():
+        # 不拦着用户用（万一服务端放宽了），但日志里先留一条线索：
+        # 这个版本合成必然 403，看见这条就不用再怀疑网络了。
+        logger.log(f"在线音色库 edge-tts {edge_version_text()} 过旧，"
+                   f"合成本会失败，请升级到 {MIN_EDGE_TTS_TEXT} 或更新版本", "WARN")
     return True
 
 
@@ -185,6 +263,8 @@ class EdgeBackend(TtsBackend):
         self._paused = False
         #: 合成线程记下的失败原因（给用户看的提示里带上）
         self._last_error = ""
+        #: 上次失败是不是服务端拒绝握手（→ 该提示升级 edge-tts，而不是查网络）
+        self._last_rejected = False
         self._fetching = False
         self._fetch_thread = None
         self._player = Mp3Player(self)
@@ -361,6 +441,10 @@ class EdgeBackend(TtsBackend):
         except Exception as exc:  # noqa: BLE001 - 断网 / 超时 / 服务端不给音频
             logger.log(f"在线合成失败（{voice_id}）: {exc}", "ERROR")
             self._last_error = str(exc)
+            self._last_rejected = is_rejected(exc)
+            if self._last_rejected:
+                logger.log(f"服务端拒绝握手，本机 edge-tts {edge_version_text()}，"
+                           f"需要 {MIN_EDGE_TTS_TEXT} 或更新版本", "WARN")
             return None
         if not data:
             logger.log(f"在线合成没有音频（{voice_id}）: {text[:20]}", "WARN")
@@ -388,10 +472,20 @@ class EdgeBackend(TtsBackend):
         self.failed.emit(self._synth_message(message))
 
     def _synth_message(self, message):
+        """合成失败 → 一句用户能照着做的提示"""
+        reason = self._last_error or message
+        rejected, self._last_rejected = self._last_rejected, False
+        self._last_error = ""
+        if rejected or is_rejected(reason):
+            # 这**不是**网络问题：说「请检查网络」只会让人白折腾
+            return i18n.t("tts.error.edge_rejected",
+                          default="在线音色服务拒绝连接：本机 edge-tts 是 {current}，"
+                                  "微软现在的校验需要 {required} 或更新版本，"
+                                  "请运行 pip install -U edge-tts 后重试。",
+                          current=edge_version_text(),
+                          required=MIN_EDGE_TTS_TEXT)
         text = i18n.t("tts.error.edge_failed",
                       default="在线音色合成失败，请检查网络后重试。")
-        reason = self._last_error or message
-        self._last_error = ""
         return text + (f"（{reason}）" if reason else "")
 
     def _play(self, clip):
@@ -426,7 +520,9 @@ class EdgeBackend(TtsBackend):
         self.state_changed.emit(state)
 
 
-__all__ = ["RATE_PERCENT_SPAN", "SYNTH_TIMEOUT", "VOICE_CACHE_PATH",
-           "VOICE_CACHE_TTL", "EdgeBackend", "edge_available", "fetch_voices",
-           "friendly_name", "load_cached_voices", "parse_voices",
-           "rate_text", "rate_to_percent", "save_cached_voices", "synthesize"]
+__all__ = ["MIN_EDGE_TTS", "MIN_EDGE_TTS_TEXT", "RATE_PERCENT_SPAN",
+           "SYNTH_TIMEOUT", "VOICE_CACHE_PATH", "VOICE_CACHE_TTL", "EdgeBackend",
+           "edge_available", "edge_outdated", "edge_version", "edge_version_text",
+           "fetch_voices", "friendly_name", "is_rejected", "load_cached_voices",
+           "parse_voices", "rate_text", "rate_to_percent", "save_cached_voices",
+           "synthesize"]

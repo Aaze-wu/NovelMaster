@@ -332,7 +332,8 @@
       "synth_failed": "语音合成失败，这句读不出来。",
       "audio_failed": "音频播放失败，请检查系统声音设置。",
       "edge_missing": "在线音色需要 edge-tts，本机没有装上。",
-      "edge_failed": "在线音色合成失败，请检查网络后重试。"
+      "edge_failed": "在线音色合成失败，请检查网络后重试。",
+      "edge_rejected": "在线音色服务拒绝连接：本机 edge-tts 是 {current}，微软现在的校验需要 {required} 或更新版本，请运行 pip install -U edge-tts 后重试。"
     }
   },
   "about": {

@@ -332,7 +332,8 @@
       "synth_failed": "語音合成失敗，這句讀不出來。",
       "audio_failed": "音訊播放失敗，請檢查系統音效設定。",
       "edge_missing": "線上音色需要 edge-tts，本機沒有安裝。",
-      "edge_failed": "線上音色合成失敗，請檢查網路後重試。"
+      "edge_failed": "線上音色合成失敗，請檢查網路後重試。",
+      "edge_rejected": "線上音色服務拒絕連線：本機 edge-tts 是 {current}，微軟現在的驗證需要 {required} 或更新版本，請執行 pip install -U edge-tts 後重試。"
     }
   },
   "about": {
