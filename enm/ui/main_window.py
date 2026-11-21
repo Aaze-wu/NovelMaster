@@ -553,6 +553,22 @@ class NovelMaster(QMainWindow):
             return False
         return bool(self.config_manager.get("tray_close_to_tray", False))
 
+    def restore_and_activate(self):
+        """把窗口从最小化 / 托盘隐藏状态叫回前台。
+
+        由单实例守卫调用：用户又双击了一次图标，而程序其实已经在跑（很可能是
+        收在托盘里或者最小化了）。这时不要再开第二个窗口，把这个叫回来就行。
+        保留原来的最大化状态——否则「最大化着最小化」再被叫回来会退回小窗。
+        """
+        state = self.windowState()
+        if state & Qt.WindowMinimized:
+            state &= ~Qt.WindowMinimized
+        # 带 WindowActive 一起设，比单独 activateWindow() 在 Windows 上更可靠
+        self.setWindowState(state | Qt.WindowActive)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
     def quit_from_tray(self):
         """托盘菜单里的「退出程序」：这次真的退"""
         self._quitting_from_tray = True

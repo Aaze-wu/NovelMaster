@@ -6,6 +6,7 @@
 !build*
 !clean*
 !NovelMaster.py
+!single_instance.py
 !install*
 !license
 !*.md
